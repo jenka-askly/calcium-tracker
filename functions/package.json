@@ -1,6 +1,3 @@
-# Purpose: Define Azure Functions dependencies and scripts for the Calcium Camera backend.
-# Persists: No persistence.
-# Security Risks: None.
 {
   "file_header": "Purpose: Define Azure Functions dependencies and scripts for the Calcium Camera backend. Persists: No persistence. Security Risks: None.",
   "name": "calcium-camera-functions",
