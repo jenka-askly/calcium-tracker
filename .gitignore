@@ -1,0 +1,31 @@
+# Purpose: Define gitignore rules for the Expo app, Azure Functions, and common tooling artifacts.
+# Persists: No persistence.
+# Security Risks: None.
+node_modules/
+**/node_modules/
+**/dist/
+**/build/
+**/.expo/
+**/.expo-shared/
+**/.parcel-cache/
+**/.turbo/
+**/.DS_Store
+**/.idea/
+**/.vscode/
+.vs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+**/coverage/
+**/.env
+**/.env.local
+**/.env.development
+**/.env.production
+**/.env.test
+**/local.settings.json
+**/*.tsbuildinfo
+**/android/
+**/ios/
+**/web-build/

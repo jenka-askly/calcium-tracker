@@ -51,7 +51,12 @@
         "calcium_mg": { "type": "integer", "minimum": 0 },
         "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
         "confidence_label": { "$ref": "#/$defs/confidence_label" },
-        "follow_up_question": { "type": ["string", "null"], "minLength": 1 },
+        "follow_up_question": {
+          "anyOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "null" }
+          ]
+        },
         "debug": {
           "type": "object",
           "additionalProperties": false,
@@ -164,7 +169,6 @@
         "diagnostics": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["app_version", "os", "os_version", "device_class", "last_error_code", "last_request_id"],
           "properties": {
             "app_version": { "type": "string" },
             "os": { "$ref": "#/$defs/os" },
@@ -204,6 +208,13 @@
         "message": { "type": "string", "minLength": 1 }
       }
     }
+  },
+  "endpoint_error_responses": {
+    "/api/estimateCalcium": ["InvalidRequestError", "RateLimitedError", "TemporarilyDisabledError"],
+    "/api/localization/latest": ["InvalidRequestError", "RateLimitedError", "TemporarilyDisabledError"],
+    "/api/localization/regenerate": ["InvalidRequestError", "RateLimitedError", "TemporarilyDisabledError"],
+    "/api/suggestion": ["InvalidRequestError", "RateLimitedError", "TemporarilyDisabledError"],
+    "/api/status": ["TemporarilyDisabledError"]
   },
   "$defs": {
     "locale": { "type": "string", "enum": ["en", "zh-Hans", "es"] },
