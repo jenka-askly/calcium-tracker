@@ -1,6 +1,3 @@
-# Purpose: Define Expo app dependencies and scripts for the Calcium Camera MVP.
-# Persists: No persistence.
-# Security Risks: None.
 {
   "file_header": "Purpose: Define Expo app dependencies and scripts for the Calcium Camera MVP. Persists: No persistence. Security Risks: None.",
   "name": "calcium-camera-app",
