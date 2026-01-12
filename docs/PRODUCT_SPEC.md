@@ -1,250 +1,164 @@
-Calcium Camera MVP (Local-Only) ó CODEX Spec
-0. Purpose
+Purpose: Define the MVP scope, UX, architecture, and constraints for the Calcium Camera app.
+Persists: SQLite tables meals, settings (local only); server storage for localization packs and suggestions as described herein.
+Security Risks: Describes handling of device identifiers, image upload boundaries, and PII-scrubbing requirements for logs and suggestions.
 
-Build a free, locally-run iOS/Android app for an 87-year-old user to track estimated calcium intake. User takes a photo of a meal, answers a few simple questions, and the app estimates calcium (mg) via Azure Functions calling OpenAI. All user data stays on device (no accounts, no cloud storage). App supports English base plus Simplified Mandarin and Spanish via server-stored AI-generated localization packs.
+# Calcium Camera MVP (Local-Only) ‚Äî Product Spec
+
+## 0. Purpose
+Build a free, locally-run iOS/Android app for an 87-year-old user to track estimated calcium intake. The user takes a photo of a meal, answers a few simple questions, and the app estimates calcium (mg) via Azure Functions calling OpenAI. All meal data stays on device (no accounts, no cloud storage). App supports English base plus Simplified Mandarin and Spanish via server-stored AI-generated localization packs.
 
 Primary user: Elderly Mandarin-only (Simplified) user. Secondary: caregiver who installs and verifies.
 
-1. Tech Stack
+## 1. Tech Stack
+**App**
+- React Native + Expo
+- TypeScript (strict)
+- Local DB: SQLite (expo-sqlite)
+- i18n: key-based localization loaded from server packs + cached locally
 
-App:
+**Server**
+- Azure Functions (Node/TypeScript)
+- Storage for localization packs + suggestions log: Azure Blob Storage (preferred) or Table Storage
+- Counters & rate limiting: Azure Cache for Redis (preferred). If not available, use Table Storage with TTL-like pattern.
 
-React Native + Expo
+**Repo**
+- GitHub
+- GitHub Actions CI
 
-TypeScript (strict)
+## 2. Non-Goals (Explicit)
+- No user accounts / auth / cloud sync of meals
+- No storing meal photos on server
+- No ‚Äúmedical advice‚Äù; no diagnostic claims
+- No complex nutrient breakdown beyond calcium mg for MVP
 
-Local DB: SQLite (expo-sqlite)
-
-i18n: key-based localization loaded from server packs + cached locally
-
-Server:
-
-Azure Functions (Node/TypeScript)
-
-Storage for localization packs + suggestions log: Azure Blob Storage (preferred) or Table Storage
-
-Counters & rate limiting: Azure Cache for Redis (preferred). If not available, use Table Storage with TTL-like pattern.
-
-Repo:
-
-GitHub
-
-GitHub Actions CI
-
-2. Non-Goals (Explicit)
-
-No user accounts / auth / cloud sync of meals
-
-No storing meal photos on server
-
-No ìmedical adviceî; no diagnostic claims
-
-No complex nutrient breakdown beyond calcium mg for MVP
-
-3. User Experience Requirements (Elder Simple)
-
+## 3. User Experience Requirements (Elder Simple)
 Global UX rules:
+- One primary action per screen
+- Large buttons and text (elder mode is default)
+- Minimal reading; avoid typing
+- Works offline for history/report; estimation requires network
+- Never show technical errors; show calm, short messages
 
-One primary action per screen
+### 3.1 Screens
+**S1: Home / Capture**
+- Big title (localized)
+- Big button: ‚ÄúTake Photo‚Äù
+- Optional smaller button: ‚ÄúReport (30 days)‚Äù
+- Optional small ‚ÄúLanguage‚Äù button (only 3 languages)
 
-Large buttons and text (elder mode is default)
+**S2: Photo Review (optional but recommended)**
+- Show captured photo
+- Big buttons: ‚ÄúUse Photo‚Äù and ‚ÄúRetake‚Äù
 
-Minimal reading; avoid typing
-
-Works offline for history/report; estimation requires network
-
-Never show technical errors; show calm, short messages
-
-3.1 Screens
-
-S1: Home / Capture
-
-Big title (localized)
-
-Big button: ìTake Photoî
-
-Optional smaller button: ìReport (30 days)î
-
-Optional small ìLanguageî button (only 3 languages)
-
-S2: Photo Review (optional but recommended)
-
-Show captured photo
-
-Big buttons: ìUse Photoî and ìRetakeî
-
-S3: Questions (max 3)
+**S3: Questions (max 3)**
 All questions are large-button multiple choice.
-Q1 Portion size: Small / Medium / Large
-Q2 Contains dairy? Yes / No / Not sure
-Q3 Contains tofu or small fish with bones? Yes / No / Not sure
+- Q1 Portion size: Small / Medium / Large
+- Q2 Contains dairy? Yes / No / Not sure
+- Q3 Contains tofu or small fish with bones? Yes / No / Not sure
 
-S4: Result
+**S4: Result**
+- Display BIG number: ‚ÄúCalcium: XXX mg‚Äù
+- Show confidence badge: High / Medium / Low
+- If Low: show one suggestion: ‚ÄúRetake photo‚Äù OR one follow-up question (see server response)
+- Big button: ‚ÄúSave‚Äù
+- Secondary: ‚ÄúRetake‚Äù
 
-Display BIG number: ìCalcium: XXX mgî
+**S5: Today**
+- Shows today‚Äôs total mg (big)
+- List of meals (time + calcium mg)
+- Button: ‚ÄúTake Photo‚Äù
 
-Show confidence badge: High / Medium / Low
+**S6: Report (30 days)**
+- List last 30 days: date + total mg
+- Tap a day to view meals
+- Button: ‚ÄúExport CSV‚Äù (optional but recommended)
+- Button: ‚ÄúSend Suggestion‚Äù
 
-If Low: show one suggestion: ìRetake photoî OR one follow-up question (see server response)
+**S7: Suggestion**
+- 3 category buttons: Bug / Feature / Confusing
+- Optional text box (max 500 chars)
+- Toggle ‚ÄúInclude diagnostic info‚Äù default OFF
+- Button ‚ÄúSend‚Äù
+- After send: ‚ÄúSent. We may not reply.‚Äù
 
-Big button: ìSaveî
+### 3.2 Accessibility
+- Respect OS font scaling
+- Hit targets >= 44pt
+- High contrast
+- No long paragraphs; avoid small text
 
-Secondary: ìRetakeî
-
-S5: Today
-
-Shows todayís total mg (big)
-
-List of meals (time + calcium mg)
-
-Button: ìTake Photoî
-
-S6: Report (30 days)
-
-List last 30 days: date + total mg
-
-Tap a day to view meals
-
-Button: ìExport CSVî (optional but recommended)
-
-Button: ìSend Suggestionî
-
-S7: Suggestion
-
-3 category buttons: Bug / Feature / Confusing
-
-Optional text box (max 500 chars)
-
-Toggle ìInclude diagnostic infoî default OFF
-
-Button ìSendî
-
-After send: ìSent. We may not reply.î
-
-3.2 Accessibility
-
-Respect OS font scaling
-
-Hit targets >= 44pt
-
-High contrast
-
-No long paragraphs; avoid small text
-
-4. Localization System (English Base + AI Packs)
-
+## 4. Localization System (English Base + AI Packs)
 Supported locales in MVP:
-
-en (base in repo)
-
-zh-Hans (Simplified Chinese)
-
-es (Spanish)
+- en (base in repo)
+- zh-Hans (Simplified Chinese)
+- es (Spanish)
 
 Rules:
-
-App ships with en.json (keys + English strings) embedded.
-
-For non-English, app downloads translation pack from server and caches locally.
-
-Server packs are generated by AI one-time per UI version and stored versioned.
+- App ships with en.json (keys + English strings) embedded.
+- For non-English, app downloads translation pack from server and caches locally.
+- Server packs are generated by AI one-time per UI version and stored versioned.
 
 Versioning:
-
-Compute ui_version = SHA-256 hash of canonical en.json content (stable formatting).
-
-Server stores packs at: locales/{ui_version}/{locale}.json
-
-Server also stores pointer: locales/latest.json containing {ui_version, supported_locales}
+- Compute ui_version = SHA-256 hash of canonical en.json content (stable formatting).
+- Server stores packs at: `locales/{ui_version}/{locale}.json`.
+- Server also stores pointer: `locales/latest.json` containing `{ui_version, supported_locales}`.
 
 App behavior:
-
-On startup: load cached pack if present for selected locale.
-
-Call GET /localization/latest?locale=...
-
-If server ui_version differs, download new pack.
-
-If download fails, keep cached pack; if none, fall back to English.
+- On startup: load cached pack if present for selected locale.
+- Call `GET /localization/latest?locale=...`.
+- If server ui_version differs, download new pack.
+- If download fails, keep cached pack; if none, fall back to English.
 
 Localization regeneration:
-
-CI job or manual admin call triggers POST /localization/regenerate to generate packs for allowed locales only.
-
-Translation must preserve keys exactly (1:1).
+- CI job or manual admin call triggers `POST /localization/regenerate` to generate packs for allowed locales only.
+- Translation must preserve keys exactly (1:1).
 
 Localization QA (server-side automated checks):
+- Keys match exactly between en.json and translated pack
+- No extra keys
+- String length checks for button labels (configurable max)
+- Optional back-translation check (non-blocking for MVP, but log warnings)
 
-Keys match exactly between en.json and translated pack
-
-No extra keys
-
-String length checks for button labels (configurable max)
-
-Optional back-translation check (non-blocking for MVP, but log warnings)
-
-5. Data Model (Local Only)
-
+## 5. Data Model (Local Only)
 SQLite tables:
 
-5.1 meals
+### 5.1 meals
+- id TEXT PRIMARY KEY (uuid)
+- timestamp INTEGER (unix ms)
+- calcium_mg INTEGER
+- confidence REAL (0..1)
+- confidence_label TEXT (‚Äúhigh|medium|low‚Äù)
+- photo_uri TEXT (local file URI, optional; may be deleted to save space)
+- answers_json TEXT (stored locally only; optional)
+- status TEXT (‚Äúestimated|pending|failed‚Äù)
 
-id TEXT PRIMARY KEY (uuid)
-
-timestamp INTEGER (unix ms)
-
-calcium_mg INTEGER
-
-confidence REAL (0..1)
-
-confidence_label TEXT (ìhigh|medium|lowî)
-
-photo_uri TEXT (local file URI, optional; may be deleted to save space)
-
-answers_json TEXT (stored locally only; optional)
-
-status TEXT (ìestimated|pending|failedî)
-
-5.2 settings
-
-key TEXT PRIMARY KEY
-
-value TEXT
+### 5.2 settings
+- key TEXT PRIMARY KEY
+- value TEXT
 
 Settings keys:
+- locale (‚Äúen|zh-Hans|es‚Äù)
+- device_install_id (uuid)
 
-locale (ìen|zh-Hans|esî)
-
-device_install_id (uuid)
-
-6. Server APIs (Azure Functions)
-
-Base: /api
+## 6. Server APIs (Azure Functions)
+Base: `/api`
 
 All endpoints must:
+- Never log images or user meal text content
+- Use structured logs with request_id
+- Perform PII scrubbing on any free-text inputs before storage/logging
 
-Never log images or user meal text content
-
-Use structured logs with request_id
-
-Perform PII scrubbing on any free-text inputs before storage/logging
-
-6.1 POST /estimateCalcium
-
+### 6.1 POST /estimateCalcium
 Purpose: estimate calcium for one meal photo + answers.
 
 Headers:
-
-x-device-install-id: <uuid>
-
-x-request-id: <uuid> (client generates per attempt)
-
-x-app-version: <string>
-
-content-type: application/json
+- `x-device-install-id: <uuid>`
+- `x-request-id: <uuid>` (client generates per attempt)
+- `x-app-version: <string>`
+- `content-type: application/json`
 
 Request JSON:
-
+```json
 {
   "image_base64": "<base64 jpeg>",
   "image_mime": "image/jpeg",
@@ -256,10 +170,10 @@ Request JSON:
   "locale": "en|zh-Hans|es",
   "ui_version": "<sha256>"
 }
-
+```
 
 Response JSON (success):
-
+```json
 {
   "calcium_mg": 320,
   "confidence": 0.62,
@@ -271,10 +185,10 @@ Response JSON (success):
     "request_id": "..."
   }
 }
-
+```
 
 Response JSON (low confidence requiring one follow-up OR retake):
-
+```json
 {
   "calcium_mg": 250,
   "confidence": 0.28,
@@ -282,303 +196,209 @@ Response JSON (low confidence requiring one follow-up OR retake):
   "follow_up_question": "Is there cheese or milk in this meal? (Yes/No/Not sure)",
   "debug": { "model": "...", "prompt_version": "...", "request_id": "..." }
 }
-
+```
 
 Errors:
+- `429 rate_limited`: `{ "error": "rate_limited", "retry_after_seconds": 60 }`
+- `503 temporarily_disabled`: `{ "error": "temporarily_disabled", "message": "Estimation temporarily unavailable." }`
+- `400 invalid_request`: schema/size issues
 
-429 rate_limited: {"error":"rate_limited","retry_after_seconds":60}
-
-503 temporarily_disabled: {"error":"temporarily_disabled","message":"Estimation temporarily unavailable."}
-
-400 invalid_request: schema/size issues
-
-6.2 GET /localization/latest?locale=...
-
+### 6.2 GET /localization/latest?locale=...
 Response:
-
+```json
 {
   "ui_version": "<sha256>",
-  "supported_locales": ["en","zh-Hans","es"],
+  "supported_locales": ["en", "zh-Hans", "es"],
   "locale": "zh-Hans",
   "pack_url": "<signed_or_public_url_to_json>"
 }
+```
 
-6.3 POST /localization/regenerate (admin-only)
-
+### 6.3 POST /localization/regenerate (admin-only)
 Body:
-
+```json
 {
   "ui_version": "<sha256>",
   "base_en_json": { "...": "..." },
-  "locales": ["zh-Hans","es"]
+  "locales": ["zh-Hans", "es"]
 }
-
+```
 
 Response:
-
+```json
 {
   "ui_version": "<sha256>",
-  "generated": ["zh-Hans","es"],
+  "generated": ["zh-Hans", "es"],
   "warnings": []
 }
+```
 
-6.4 POST /suggestion
-
+### 6.4 POST /suggestion
 Purpose: accept suggestion. No response guarantee.
 
 Request:
-
+```json
 {
   "category": "bug|feature|confusing",
   "message": "string (<=500 chars)",
   "include_diagnostics": false,
   "diagnostics": {
-    "app_version": "Ö",
+    "app_version": "...",
     "os": "ios|android",
-    "os_version": "Ö",
-    "device_class": "Ö",
-    "last_error_code": "Ö",
-    "last_request_id": "Ö"
+    "os_version": "...",
+    "device_class": "...",
+    "last_error_code": "...",
+    "last_request_id": "..."
   }
 }
-
+```
 
 Server storage record:
-
-Timestamp
-
-Category
-
-Scrubbed message
-
-Diagnostics (if provided)
-
-Hashed device_install_id (hash with server secret salt)
-
-No IP storage unless required by Azure logs; if present, do not persist in custom storage
+- Timestamp
+- Category
+- Scrubbed message
+- Diagnostics (if provided)
+- Hashed device_install_id (hash with server secret salt)
+- No IP storage unless required by Azure logs; if present, do not persist in custom storage
 
 Response:
+- Always 200 with `{ "ok": true }` unless rate limited
 
-Always 200 with {"ok":true} unless rate limited
-
-6.5 GET /status
-
+### 6.5 GET /status
 Response:
-
+```json
 {
   "estimation_enabled": true,
   "lockout_active": false,
   "message": "OK"
 }
+```
 
-7. OpenAI Model Choice (Cost First)
-
-Estimation: default gpt-4o-mini (vision + structured output). Upgrade switch available via server config to gpt-4o if accuracy insufficient.
-Localization: gpt-4o-mini (text-only).
+## 7. OpenAI Model Choice (Cost First)
+- Estimation: default `gpt-4o-mini` (vision + structured output). Upgrade switch available via server config to `gpt-4o` if accuracy insufficient.
+- Localization: `gpt-4o-mini` (text-only).
 
 Server must keep model names configurable via env vars:
+- `OPENAI_MODEL_ESTIMATE`
+- `OPENAI_MODEL_TRANSLATE`
 
-OPENAI_MODEL_ESTIMATE
-
-OPENAI_MODEL_TRANSLATE
-
-8. Structured Output + Validation (Critical Reliability)
-
+## 8. Structured Output + Validation (Critical Reliability)
 Server must enforce strict JSON schema for model responses.
 
 Behavior:
+- Call OpenAI with schema requirement.
+- Validate response using JSON schema validator.
+- If invalid: retry exactly once with ‚Äúfix to schema‚Äù prompt using the raw model output as input.
+- If still invalid: return user-friendly failure (no raw output).
+- Never return long explanations to the app; keep responses small.
 
-Call OpenAI with schema requirement
-
-Validate response using JSON schema validator
-
-If invalid: retry exactly once with ìfix to schemaî prompt using the raw model output as input
-
-If still invalid: return user-friendly failure (no raw output)
-
-Never return long explanations to the app; keep responses small.
-
-9. Cost Control: Automatic Circuit Breaker (Auto-Stop)
-
+## 9. Cost Control: Automatic Circuit Breaker (Auto-Stop)
 Must stop runaway costs automatically without human intervention.
 
 Mechanism:
-
-Daily budget cap (DAILY_USD_CAP)
-
-Hourly budget cap (HOURLY_USD_CAP) recommended
-
-Atomic reservation before calling OpenAI:
-
-Reserve ESTIMATE_MAX_USD_PER_CALL from daily/hourly counters
-
-If insufficient remaining budget: set lockout key until period reset and return 503
-
-After call:
-
-Reconcile reservation with actual computed cost (tokens * configured rates)
-
-If exceed cap after reconcile: set lockout
+- Daily budget cap (`DAILY_USD_CAP`)
+- Hourly budget cap (`HOURLY_USD_CAP`) recommended
+- Atomic reservation before calling OpenAI:
+  - Reserve `ESTIMATE_MAX_USD_PER_CALL` from daily/hourly counters
+  - If insufficient remaining budget: set lockout key until period reset and return 503
+- After call:
+  - Reconcile reservation with actual computed cost (tokens * configured rates)
+  - If exceed cap after reconcile: set lockout
 
 Also:
+- Per-device call limits (calls/day and burst/min)
+- Idempotency cache by `x-request-id` (TTL 10‚Äì30 minutes) so retries don‚Äôt double-bill
 
-Per-device call limits (calls/day and burst/min)
-
-Idempotency cache by x-request-id (TTL 10ñ30 minutes) so retries donít double-bill
-
-10. Rate Limiting / Abuse Gate (No Auth)
-
+## 10. Rate Limiting / Abuse Gate (No Auth)
 Identity:
-
-device_install_id generated on device and stored locally
-
-Included on each request
+- `device_install_id` generated on device and stored locally
+- Included on each request
 
 Limits (configurable):
-
-Per device: MAX_CALLS_PER_DAY (e.g., 20)
-
-Per device burst: MAX_CALLS_PER_MINUTE (e.g., 5)
-
-Global caps from circuit breaker
+- Per device: `MAX_CALLS_PER_DAY` (e.g., 20)
+- Per device burst: `MAX_CALLS_PER_MINUTE` (e.g., 5)
+- Global caps from circuit breaker
 
 On limit hit:
-
-Return 429 with retry_after
+- Return 429 with retry_after
 
 Quarantine:
+- If device repeatedly hits limits abnormally, block for 24h (server-side key)
 
-If device repeatedly hits limits abnormally, block for 24h (server-side key)
-
-11. PII Scrubbing and Logging
-
+## 11. PII Scrubbing and Logging
 Operational logs must include:
-
-request_id
-
-device_install_id hashed (never raw)
-
-model name
-
-timing
-
-token usage + computed cost
-
-status codes
-
-confidence bucket
+- request_id
+- device_install_id hashed (never raw)
+- model name
+- timing
+- token usage + computed cost
+- status codes
+- confidence bucket
 
 Operational logs must NOT include:
-
-images
-
-suggestion message raw (store separately only after scrub)
-
-free-form user text (avoid in MVP)
+- images
+- suggestion message raw (store separately only after scrub)
+- free-form user text (avoid in MVP)
 
 Suggestion storage:
+- Scrub message before storing
+- Cap length
+- Access-limited storage container
 
-Scrub message before storing
-
-Cap length
-
-Access-limited storage container
-
-12. Image Handling Requirements
-
+## 12. Image Handling Requirements
 On-device before upload:
-
-Crop to plate (optional step) OR center-crop
-
-Downscale to max long edge ~1024 px
-
-JPEG quality moderate to reduce size
+- Crop to plate (optional step) OR center-crop
+- Downscale to max long edge ~1024 px
+- JPEG quality moderate to reduce size
 
 Server:
+- Reject images over size limit (e.g., 2‚Äì3 MB)
+- Never persist image bytes
 
-Reject images over size limit (e.g., 2ñ3 MB)
-
-Never persist image bytes
-
-13. Offline Behavior
-
+## 13. Offline Behavior
 If estimation fails due to network or 503/429:
+- Allow saving meal with `status=pending` (calcium_mg null or 0 + flagged)
+- Provide ‚ÄúTry again‚Äù option later
+- Report uses only estimated values; pending shown as ‚Äú‚Äî‚Äù
 
-Allow saving meal with status=pending (calcium_mg null or 0 + flagged)
-
-Provide ìTry againî option later
-
-Report uses only estimated values; pending shown as ìóî
-
-14. Export (Optional but Recommended)
-
+## 14. Export (Optional but Recommended)
 From Report:
+- Export CSV locally: `date, total_calcium_mg`
+- Optional meals list export
+- Use OS share sheet; no server upload
 
-Export CSV locally:
+## 15. Repository Layout
+- `/app` Expo RN app
+- `/functions` Azure Functions
+- `/docs` all specs/contracts/runbook/prompts
+- `/.github/workflows` CI
 
-date, total_calcium_mg
-
-optional meals list export
-
-Use OS share sheet; no server upload
-
-15. Repository Layout
-
-/app Expo RN app
-
-/functions Azure Functions
-
-/docs all specs/contracts/runbook/prompts
-
-/.github/workflows CI
-
-16. Documentation (Must Exist and Stay Updated)
-
+## 16. Documentation (Must Exist and Stay Updated)
 Required docs:
-
-/docs/PRODUCT_SPEC.md (this file)
-
-/docs/API_CONTRACT.json (schemas)
-
-/docs/I18N_SPEC.md
-
-/docs/RUNBOOK.md (ops, kill switch, budget caps, key rotation)
-
-/docs/PROMPTS/estimateCalcium_v1.md
-
-/docs/PROMPTS/translate_v1.md
-
-/docs/TEST_PLAN.md
-
-/CHANGELOG.md
+- `/docs/PRODUCT_SPEC.md` (this file)
+- `/docs/API_CONTRACT.json` (schemas)
+- `/docs/I18N_SPEC.md`
+- `/docs/RUNBOOK.md` (ops, kill switch, budget caps, key rotation)
+- `/docs/PROMPTS/estimateCalcium_v1.md`
+- `/docs/PROMPTS/translate_v1.md`
+- `/docs/TEST_PLAN.md`
+- `/CHANGELOG.md`
 
 CI must fail if:
+- API responses don‚Äôt match contract schemas
+- i18n keys not present
+- localization pack generation mismatch keys
+- TypeScript errors / lint errors / tests fail
 
-API responses donít match contract schemas
-
-i18n keys not present
-
-localization pack generation mismatch keys
-
-TypeScript errors / lint errors / tests fail
-
-17. Acceptance Criteria (MVP)
-
+## 17. Acceptance Criteria (MVP)
 Functional:
-
-User can take photo, answer 3 questions, receive calcium estimate, save meal.
-
-Today view shows running total and saved meals.
-
-Report shows daily totals for last 30 days.
-
-Locale can be switched among en/zh-Hans/es and persists.
-
-Non-English strings load from server pack and cache locally; app works if pack fetch fails (fallback).
-
-Suggestion can be sent; user sees ìno promise of responseî text.
-
-App runs with no login; all meal data stored locally.
+1. User can take photo, answer 3 questions, receive calcium estimate, save meal.
+2. Today view shows running total and saved meals.
+3. Report shows daily totals for last 30 days.
+4. Locale can be switched among en/zh-Hans/es and persists.
+5. Non-English strings load from server pack and cache locally; app works if pack fetch fails (fallback).
+6. Suggestion can be sent; user sees ‚Äúno promise of response‚Äù text.
+7. App runs with no login; all meal data stored locally.
 
 Reliability:
 8. Server enforces strict JSON schema; invalid output triggers at most one retry.
@@ -589,24 +409,15 @@ Reliability:
 Cost:
 12. Idempotency prevents duplicate billing on client retries.
 
-18. Prompt Requirements (High Level)
-
+## 18. Prompt Requirements (High Level)
 Estimation prompt must:
-
-Produce JSON only matching schema
-
-Estimate calcium mg as integer
-
-Provide confidence 0..1 and label mapping
-
-If confidence low, return one follow_up_question string or null
+- Produce JSON only matching schema
+- Estimate calcium mg as integer
+- Provide confidence 0..1 and label mapping
+- If confidence low, return one follow_up_question string or null
 
 Translation prompt must:
-
-Preserve keys exactly
-
-Produce short elder-friendly translations
-
-Avoid medical claims
-
-Return JSON only
+- Preserve keys exactly
+- Produce short elder-friendly translations
+- Avoid medical claims
+- Return JSON only
