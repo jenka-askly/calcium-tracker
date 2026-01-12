@@ -105,12 +105,12 @@ Versioning:
 
 App behavior:
 - On startup: load cached pack if present for selected locale.
-- Call `GET /localization/latest?locale=...`.
+- Call `GET /api/localization/latest?locale=...`.
 - If server ui_version differs, download new pack.
 - If download fails, keep cached pack; if none, fall back to English.
 
 Localization regeneration:
-- CI job or manual admin call triggers `POST /localization/regenerate` to generate packs for allowed locales only.
+- CI job or manual admin call triggers `POST /api/localization/regenerate` to generate packs for allowed locales only.
 - Translation must preserve keys exactly (1:1).
 
 Localization QA (server-side automated checks):
@@ -203,7 +203,7 @@ Errors:
 - `503 temporarily_disabled`: `{ "error": "temporarily_disabled", "message": "Estimation temporarily unavailable." }`
 - `400 invalid_request`: schema/size issues
 
-### 6.2 GET /localization/latest?locale=...
+### 6.2 GET /api/localization/latest?locale=...
 Response:
 ```json
 {
@@ -214,7 +214,7 @@ Response:
 }
 ```
 
-### 6.3 POST /localization/regenerate (admin-only)
+### 6.3 POST /api/localization/regenerate (admin-only)
 Body:
 ```json
 {
