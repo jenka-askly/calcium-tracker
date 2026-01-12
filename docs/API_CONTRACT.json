@@ -1,0 +1,216 @@
+{
+  "file_header": {
+    "purpose": "Define strict JSON Schemas for all public API requests and responses for the Calcium Camera MVP.",
+    "persists": "No persistence defined here; schemas describe payloads used by Functions and local app.",
+    "security_risks": "Schemas include fields that carry device identifiers and diagnostics; avoid logging raw values in production logs."
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schemas": {
+    "EstimateCalciumHeaders": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "EstimateCalciumHeaders",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x-device-install-id", "x-request-id", "x-app-version"],
+      "properties": {
+        "x-device-install-id": { "type": "string", "format": "uuid" },
+        "x-request-id": { "type": "string", "format": "uuid" },
+        "x-app-version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "EstimateCalciumRequest": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "EstimateCalciumRequest",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["image_base64", "image_mime", "answers", "locale", "ui_version"],
+      "properties": {
+        "image_base64": { "type": "string", "minLength": 1 },
+        "image_mime": { "type": "string", "const": "image/jpeg" },
+        "answers": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["portion_size", "contains_dairy", "contains_tofu_or_small_fish_bones"],
+          "properties": {
+            "portion_size": { "$ref": "#/$defs/portion_size" },
+            "contains_dairy": { "$ref": "#/$defs/yes_no_not_sure" },
+            "contains_tofu_or_small_fish_bones": { "$ref": "#/$defs/yes_no_not_sure" }
+          }
+        },
+        "locale": { "$ref": "#/$defs/locale" },
+        "ui_version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "EstimateCalciumResponse": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "EstimateCalciumResponse",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["calcium_mg", "confidence", "confidence_label", "follow_up_question", "debug"],
+      "properties": {
+        "calcium_mg": { "type": "integer", "minimum": 0 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "confidence_label": { "$ref": "#/$defs/confidence_label" },
+        "follow_up_question": { "type": ["string", "null"], "minLength": 1 },
+        "debug": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["model", "prompt_version", "request_id"],
+          "properties": {
+            "model": { "type": "string", "minLength": 1 },
+            "prompt_version": { "type": "string", "minLength": 1 },
+            "request_id": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "RateLimitedError": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "RateLimitedError",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["error", "retry_after_seconds"],
+      "properties": {
+        "error": { "type": "string", "const": "rate_limited" },
+        "retry_after_seconds": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "TemporarilyDisabledError": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "TemporarilyDisabledError",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["error", "message"],
+      "properties": {
+        "error": { "type": "string", "const": "temporarily_disabled" },
+        "message": { "type": "string", "minLength": 1 }
+      }
+    },
+    "InvalidRequestError": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "InvalidRequestError",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["error", "message"],
+      "properties": {
+        "error": { "type": "string", "const": "invalid_request" },
+        "message": { "type": "string", "minLength": 1 }
+      }
+    },
+    "LocalizationLatestResponse": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "LocalizationLatestResponse",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ui_version", "supported_locales", "locale", "pack_url"],
+      "properties": {
+        "ui_version": { "type": "string", "minLength": 1 },
+        "supported_locales": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/locale" }
+        },
+        "locale": { "$ref": "#/$defs/locale" },
+        "pack_url": { "type": "string", "format": "uri" }
+      }
+    },
+    "LocalizationRegenerateRequest": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "LocalizationRegenerateRequest",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ui_version", "base_en_json", "locales"],
+      "properties": {
+        "ui_version": { "type": "string", "minLength": 1 },
+        "base_en_json": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "locales": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/locale" }
+        }
+      }
+    },
+    "LocalizationRegenerateResponse": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "LocalizationRegenerateResponse",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ui_version", "generated", "warnings"],
+      "properties": {
+        "ui_version": { "type": "string", "minLength": 1 },
+        "generated": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/locale" }
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "SuggestionRequest": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "SuggestionRequest",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category", "message", "include_diagnostics"],
+      "properties": {
+        "category": { "$ref": "#/$defs/suggestion_category" },
+        "message": { "type": "string", "maxLength": 500 },
+        "include_diagnostics": { "type": "boolean" },
+        "diagnostics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["app_version", "os", "os_version", "device_class", "last_error_code", "last_request_id"],
+          "properties": {
+            "app_version": { "type": "string" },
+            "os": { "$ref": "#/$defs/os" },
+            "os_version": { "type": "string" },
+            "device_class": { "type": "string" },
+            "last_error_code": { "type": "string" },
+            "last_request_id": { "type": "string" }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "include_diagnostics": { "const": true } } },
+          "then": { "required": ["diagnostics"] }
+        }
+      ]
+    },
+    "SuggestionResponse": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "SuggestionResponse",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok"],
+      "properties": {
+        "ok": { "type": "boolean", "const": true }
+      }
+    },
+    "StatusResponse": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "StatusResponse",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["estimation_enabled", "lockout_active", "message"],
+      "properties": {
+        "estimation_enabled": { "type": "boolean" },
+        "lockout_active": { "type": "boolean" },
+        "message": { "type": "string", "minLength": 1 }
+      }
+    }
+  },
+  "$defs": {
+    "locale": { "type": "string", "enum": ["en", "zh-Hans", "es"] },
+    "portion_size": { "type": "string", "enum": ["small", "medium", "large"] },
+    "yes_no_not_sure": { "type": "string", "enum": ["yes", "no", "not_sure"] },
+    "confidence_label": { "type": "string", "enum": ["high", "medium", "low"] },
+    "suggestion_category": { "type": "string", "enum": ["bug", "feature", "confusing"] },
+    "os": { "type": "string", "enum": ["ios", "android"] }
+  }
+}
