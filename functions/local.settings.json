@@ -1,0 +1,8 @@
+{
+  "file_header": "Purpose: Configure local Azure Functions settings for development. Persists: No persistence. Security Risks: Contains local-only settings; do not store secrets.",
+  "IsEncrypted": false,
+  "Values": {
+    "FUNCTIONS_WORKER_RUNTIME": "node",
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true"
+  }
+}

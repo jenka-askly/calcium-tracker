@@ -6,6 +6,40 @@ import crypto from "crypto";
 
 type Locale = "en" | "zh-Hans" | "es";
 type SuggestionCategory = "bug" | "feature" | "confusing";
+type PortionSize = "small" | "medium" | "large";
+type YesNoNotSure = "yes" | "no" | "not_sure";
+
+type EstimateCalciumRequest = {
+  image_base64: string;
+  image_mime: "image/jpeg";
+  answers: {
+    portion_size: PortionSize;
+    contains_dairy: YesNoNotSure;
+    contains_tofu_or_small_fish_bones: YesNoNotSure;
+  };
+  locale: Locale;
+  ui_version: string;
+};
+
+type SuggestionRequest = {
+  category: SuggestionCategory;
+  message: string;
+  include_diagnostics: boolean;
+  diagnostics?: {
+    app_version?: string;
+    os?: "ios" | "android";
+    os_version?: string;
+    device_class?: string;
+    last_error_code?: string;
+    last_request_id?: string;
+  };
+};
+
+type LocalizationRegenerateRequest = {
+  ui_version: string;
+  base_en_json: Record<string, string>;
+  locales: Locale[];
+};
 
 const ESTIMATION_ENABLED = process.env.ESTIMATION_ENABLED !== "false";
 const LOCKOUT_ACTIVE = process.env.LOCKOUT_ACTIVE === "true";
@@ -14,6 +48,11 @@ const CIRCUIT_BREAKER_ENABLED = process.env.CIRCUIT_BREAKER_ENABLED !== "false";
 const ADMIN_KEY = process.env.ADMIN_KEY ?? "changeme";
 const DEVICE_HASH_SALT = process.env.DEVICE_HASH_SALT ?? "local-dev-salt";
 const LOCALIZATION_PACK_URL_BASE = process.env.LOCALIZATION_PACK_URL_BASE ?? "http://localhost:7071/locales";
+
+const SUPPORTED_LOCALES: Locale[] = ["en", "zh-Hans", "es"];
+const PORTION_SIZES: PortionSize[] = ["small", "medium", "large"];
+const YES_NO_NOT_SURE_VALUES: YesNoNotSure[] = ["yes", "no", "not_sure"];
+const SUGGESTION_CATEGORIES: SuggestionCategory[] = ["bug", "feature", "confusing"];
 
 function hashDeviceInstallId(deviceInstallId: string): string {
   return crypto.createHash("sha256").update(`${DEVICE_HASH_SALT}:${deviceInstallId}`).digest("hex");
@@ -73,6 +112,90 @@ function isRateLimited(): boolean {
   return false;
 }
 
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isLocale(value: unknown): value is Locale {
+  return isNonEmptyString(value) && SUPPORTED_LOCALES.includes(value as Locale);
+}
+
+function isPortionSize(value: unknown): value is PortionSize {
+  return isNonEmptyString(value) && PORTION_SIZES.includes(value as PortionSize);
+}
+
+function isYesNoNotSure(value: unknown): value is YesNoNotSure {
+  return isNonEmptyString(value) && YES_NO_NOT_SURE_VALUES.includes(value as YesNoNotSure);
+}
+
+function isSuggestionCategory(value: unknown): value is SuggestionCategory {
+  return isNonEmptyString(value) && SUGGESTION_CATEGORIES.includes(value as SuggestionCategory);
+}
+
+function isEstimateCalciumRequest(value: unknown): value is EstimateCalciumRequest {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const body = value as EstimateCalciumRequest;
+  if (!isNonEmptyString(body.image_base64) || body.image_mime !== "image/jpeg") {
+    return false;
+  }
+
+  if (!body.answers || typeof body.answers !== "object") {
+    return false;
+  }
+
+  const { portion_size, contains_dairy, contains_tofu_or_small_fish_bones } = body.answers;
+  if (!isPortionSize(portion_size) || !isYesNoNotSure(contains_dairy) || !isYesNoNotSure(contains_tofu_or_small_fish_bones)) {
+    return false;
+  }
+
+  if (!isLocale(body.locale) || !isNonEmptyString(body.ui_version)) {
+    return false;
+  }
+
+  return true;
+}
+
+function isSuggestionRequest(value: unknown): value is SuggestionRequest {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const body = value as SuggestionRequest;
+  if (!isSuggestionCategory(body.category) || !isNonEmptyString(body.message) || typeof body.include_diagnostics !== "boolean") {
+    return false;
+  }
+
+  if (body.message.length > 500) {
+    return false;
+  }
+
+  if (body.include_diagnostics) {
+    return Boolean(body.diagnostics && typeof body.diagnostics === "object");
+  }
+
+  return true;
+}
+
+function isLocalizationRegenerateRequest(value: unknown): value is LocalizationRegenerateRequest {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const body = value as LocalizationRegenerateRequest;
+  if (!isNonEmptyString(body.ui_version) || !body.base_en_json || typeof body.base_en_json !== "object") {
+    return false;
+  }
+
+  if (!Array.isArray(body.locales) || body.locales.length === 0 || body.locales.some((locale) => !isLocale(locale))) {
+    return false;
+  }
+
+  return true;
+}
+
 app.http("status", {
   methods: ["GET"],
   route: "status",
@@ -102,7 +225,7 @@ app.http("estimateCalcium", {
     const requestId = getHeader(request, "x-request-id");
     const appVersion = getHeader(request, "x-app-version");
 
-    if (!deviceInstallId || !requestId || !appVersion) {
+    if (!isNonEmptyString(deviceInstallId) || !isNonEmptyString(requestId) || !isNonEmptyString(appVersion)) {
       return invalidRequest("Missing required headers.");
     }
 
@@ -126,8 +249,8 @@ app.http("estimateCalcium", {
       return rateLimited();
     }
 
-    const body = await parseJson<Record<string, unknown>>(request);
-    if (!body) {
+    const body = await parseJson<EstimateCalciumRequest>(request);
+    if (!body || !isEstimateCalciumRequest(body)) {
       return invalidRequest("Invalid JSON body.");
     }
 
@@ -160,8 +283,8 @@ app.http("localizationLatest", {
   methods: ["GET"],
   route: "localization/latest",
   handler: async (request, context) => {
-    const locale = request.query.get("locale") as Locale | null;
-    if (!locale || !["en", "zh-Hans", "es"].includes(locale)) {
+    const locale = request.query.get("locale");
+    if (!isLocale(locale)) {
       return invalidRequest("Unsupported locale.");
     }
 
@@ -182,7 +305,7 @@ app.http("localizationLatest", {
       status: 200,
       jsonBody: {
         ui_version: "mock-ui-version",
-        supported_locales: ["en", "zh-Hans", "es"],
+        supported_locales: SUPPORTED_LOCALES,
         locale,
         pack_url: `${LOCALIZATION_PACK_URL_BASE}/${locale}.json`
       }
@@ -199,14 +322,14 @@ app.http("localizationRegenerate", {
       return invalidRequest("Unauthorized.");
     }
 
-    const body = await parseJson<{ ui_version: string; locales: Locale[] }>(request);
-    if (!body) {
+    const body = await parseJson<LocalizationRegenerateRequest>(request);
+    if (!body || !isLocalizationRegenerateRequest(body)) {
       return invalidRequest("Invalid JSON body.");
     }
 
     logEvent(context, "localization_regenerate", {
       ui_version: body.ui_version,
-      locales_count: body.locales?.length ?? 0
+      locales_count: body.locales.length
     });
 
     if (RATE_LIMIT_ENABLED && isRateLimited()) {
@@ -220,8 +343,8 @@ app.http("localizationRegenerate", {
     return {
       status: 200,
       jsonBody: {
-        ui_version: body.ui_version ?? "mock-ui-version",
-        generated: body.locales ?? [],
+        ui_version: body.ui_version,
+        generated: body.locales,
         warnings: []
       }
     };
@@ -232,8 +355,8 @@ app.http("suggestion", {
   methods: ["POST"],
   route: "suggestion",
   handler: async (request, context) => {
-    const body = await parseJson<{ category?: SuggestionCategory }>(request);
-    if (!body?.category) {
+    const body = await parseJson<SuggestionRequest>(request);
+    if (!body || !isSuggestionRequest(body)) {
       return invalidRequest("Invalid suggestion payload.");
     }
 
