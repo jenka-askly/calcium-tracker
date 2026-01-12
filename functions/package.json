@@ -1,0 +1,26 @@
+# Purpose: Define Azure Functions dependencies and scripts for the Calcium Camera backend.
+# Persists: No persistence.
+# Security Risks: None.
+{
+  "file_header": "Purpose: Define Azure Functions dependencies and scripts for the Calcium Camera backend. Persists: No persistence. Security Risks: None.",
+  "name": "calcium-camera-functions",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "func start",
+    "lint": "eslint \"src/**/*.ts\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@azure/functions": "^4.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.25",
+    "eslint": "^8.57.0",
+    "@typescript-eslint/eslint-plugin": "^7.3.1",
+    "@typescript-eslint/parser": "^7.3.1",
+    "typescript": "^5.3.3"
+  }
+}

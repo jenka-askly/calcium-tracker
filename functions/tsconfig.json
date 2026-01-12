@@ -1,0 +1,15 @@
+// Purpose: Configure TypeScript compilation for Azure Functions.
+// Persists: No persistence.
+// Security Risks: None.
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "es2020",
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts"]
+}
