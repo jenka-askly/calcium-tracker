@@ -1,7 +1,5 @@
-// Purpose: Configure TypeScript compilation for Azure Functions.
-// Persists: No persistence.
-// Security Risks: None.
 {
+  "file_header": "Purpose: Configure TypeScript compilation for Azure Functions. Persists: No persistence. Security Risks: None.",
   "compilerOptions": {
     "module": "commonjs",
     "target": "es2020",
