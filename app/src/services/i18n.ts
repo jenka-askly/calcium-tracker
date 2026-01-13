@@ -1,4 +1,4 @@
-// Purpose: Load, cache, and provide localization strings with English fallback.
+// Purpose: Load, cache, and provide localization strings with English fallback plus diagnostics.
 // Persists: Caches localization packs in AsyncStorage.
 // Security Risks: Fetches pack URLs; avoid logging pack contents or URLs with tokens.
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -6,7 +6,8 @@ import * as Crypto from "expo-crypto";
 import * as Localization from "expo-localization";
 
 import enStrings from "../localization/en.json";
-import { getLocalizationLatest } from "./apiClient";
+import { fetchWithLogging, getLocalizationLatest } from "./apiClient";
+import { log } from "../utils/logger";
 
 export type Locale = "en" | "zh-Hans" | "es";
 
@@ -32,6 +33,16 @@ export function getDefaultLocale(): Locale {
   return "en";
 }
 
+async function getStorageItem(key: string): Promise<string | null> {
+  log("storage", "get", { key });
+  return AsyncStorage.getItem(key);
+}
+
+async function setStorageItem(key: string, value: string): Promise<void> {
+  log("storage", "set", { key });
+  await AsyncStorage.setItem(key, value);
+}
+
 export async function computeUiVersion(): Promise<string> {
   const keys = Object.keys(enStrings).sort();
   const canonical = JSON.stringify(
@@ -51,8 +62,8 @@ function stripHeaderKeys(strings: Record<string, string>): Record<string, string
 
 export async function loadLocalization(locale: Locale): Promise<LocalizationState> {
   const uiVersion = await computeUiVersion();
-  const cachedPackRaw = await AsyncStorage.getItem(`${PACK_STORAGE_PREFIX}${locale}`);
-  const cachedVersion = await AsyncStorage.getItem(`${VERSION_STORAGE_PREFIX}${locale}`);
+  const cachedPackRaw = await getStorageItem(`${PACK_STORAGE_PREFIX}${locale}`);
+  const cachedVersion = await getStorageItem(`${VERSION_STORAGE_PREFIX}${locale}`);
   const baseStrings = stripHeaderKeys(enStrings);
   let strings = baseStrings;
 
@@ -69,18 +80,18 @@ export async function loadLocalization(locale: Locale): Promise<LocalizationStat
     try {
       const latest = await getLocalizationLatest(locale);
       if (latest.ui_version && latest.ui_version !== cachedVersion) {
-        const response = await fetch(latest.pack_url);
+        const response = await fetchWithLogging(latest.pack_url);
         if (response.ok) {
           const pack = (await response.json()) as Record<string, string>;
-          await AsyncStorage.setItem(
-            `${PACK_STORAGE_PREFIX}${locale}`,
-            JSON.stringify(pack)
-          );
-          await AsyncStorage.setItem(`${VERSION_STORAGE_PREFIX}${locale}`, latest.ui_version);
+          await setStorageItem(`${PACK_STORAGE_PREFIX}${locale}`, JSON.stringify(pack));
+          await setStorageItem(`${VERSION_STORAGE_PREFIX}${locale}`, latest.ui_version);
           strings = { ...baseStrings, ...stripHeaderKeys(pack) };
         }
       }
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log("i18n", "load:error", { message, locale });
+      console.error(error);
       // Ignore network errors and keep cached or base strings.
     }
   }

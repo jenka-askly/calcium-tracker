@@ -1,6 +1,8 @@
+<!--
 Purpose: Provide operational guidance for the Calcium Camera Azure Functions backend (budget caps, rate limits, logging, and incident response).
 Persists: References storage of localization packs and suggestion records in Azure Blob or Table Storage.
 Security Risks: Covers key rotation, signed URLs, and handling of hashed device identifiers; avoid logging secrets.
+-->
 
 # Runbook — Calcium Camera MVP
 
@@ -64,6 +66,28 @@ Use this endpoint for basic health checks and for client UI messaging.
 ## Logging
 - Structured logs with: request_id, hashed device_install_id, model name, timings, token usage, status.
 - Never log images, raw suggestion text, SAS tokens, or API keys.
+
+## Debugging boot hangs
+### How to start the app
+- `cd app`
+- `npm install`
+- `npm run start`
+
+### How to open React Native DevTools
+- In the Expo CLI terminal, press `j` to open React Native DevTools.
+- Use the Console panel to watch logs during startup.
+
+### What to grep for
+- Filter logs for the prefix: `[calcium-tracker]`.
+
+### Key events and what they mean
+- `boot:start` / `boot:deps` / `boot:env`: app entrypoint, dependency versions, and runtime environment.
+- `boot:step` (start/end/error): startup phases like `db:init`, `settings:locale`, `settings:device_install_id`, `i18n:load`, and `navigation:mount`.
+- `boot:waiting`: watchdog log every 2s while loading; includes current step and flags.
+- `boot:timeout`: boot exceeded 15s and surfaced an error state.
+- `net:req` / `net:res` / `net:err` / `net:abort`: backend requests, responses, failures, and timeouts (10s). Check `net:base_url` to verify the base URL (avoid `localhost` on device).
+- `db:open` / `db:exec`: SQLite open and execution markers.
+- `storage:get` / `storage:set`: AsyncStorage access for localization packs (keys only).
 
 ## Incident Playbooks
 ### 503 Temporarily Disabled (Circuit Breaker Triggered)

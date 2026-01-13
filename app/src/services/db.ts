@@ -1,7 +1,9 @@
-// Purpose: Initialize and provide access to the local SQLite database tables.
+// Purpose: Initialize and provide access to the local SQLite database tables with diagnostics.
 // Persists: Creates and updates SQLite tables meals and settings.
 // Security Risks: Handles local storage of device identifiers and meal metadata.
 import * as SQLite from "expo-sqlite";
+
+import { log } from "../utils/logger";
 
 const DB_NAME = "calcium_camera.db";
 
@@ -11,9 +13,19 @@ let db: DatabaseConnection | null = null;
 
 export function getDatabase(): DatabaseConnection {
   if (!db) {
+    log("db", "open", { name: DB_NAME });
     db = SQLite.openDatabase(DB_NAME);
   }
   return db;
+}
+
+function getStatementLabel(statement: string): string {
+  const trimmed = statement.replace(/\s+/g, " ").trim();
+  if (!trimmed) {
+    return "empty";
+  }
+  const tokens = trimmed.split(" ").slice(0, 3);
+  return tokens.join(" ").toLowerCase();
 }
 
 export function initDatabase(): Promise<void> {
@@ -51,6 +63,8 @@ export function executeSql<T = SQLite.SQLResultSet>(
   args: (string | number | null)[] = []
 ): Promise<T> {
   const database = getDatabase();
+  const statementLabel = getStatementLabel(statement);
+  log("db", "exec", { statement: statementLabel });
   return new Promise((resolve, reject) => {
     database.transaction((tx) => {
       tx.executeSql(
@@ -58,6 +72,9 @@ export function executeSql<T = SQLite.SQLResultSet>(
         args,
         (_, result) => resolve(result as T),
         (_, error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          log("db", "exec:error", { statement: statementLabel, message });
+          console.error(error);
           reject(error);
           return false;
         }

@@ -1,14 +1,16 @@
-// Purpose: Manage persisted settings like locale and device_install_id in SQLite.
+// Purpose: Manage persisted settings like locale and device_install_id in SQLite with diagnostics.
 // Persists: Reads and writes to SQLite settings table.
 // Security Risks: Handles device_install_id persistence.
 import { v4 as uuidv4 } from "uuid";
 
 import { executeSql } from "./db";
+import { log } from "../utils/logger";
 
 const SETTING_LOCALE = "locale";
 const SETTING_DEVICE_INSTALL_ID = "device_install_id";
 
 export async function getSetting(key: string): Promise<string | null> {
+  log("storage", "get", { key });
   const result = await executeSql<{ rows: { length: number; item: (index: number) => { value: string } } }>(
     "SELECT value FROM settings WHERE key = ? LIMIT 1;",
     [key]
@@ -20,6 +22,7 @@ export async function getSetting(key: string): Promise<string | null> {
 }
 
 export async function setSetting(key: string, value: string): Promise<void> {
+  log("storage", "set", { key });
   await executeSql("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?);", [key, value]);
 }
 
