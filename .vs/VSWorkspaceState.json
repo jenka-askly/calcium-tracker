@@ -1,8 +1,8 @@
 {
   "ExpandedNodes": [
     "",
-    "\\docs"
+    "\\app"
   ],
-  "SelectedNode": "\\docs\\RUNBOOK.md",
+  "SelectedNode": "\\app\\App.tsx",
   "PreviewInSolutionExplorer": false
 }
