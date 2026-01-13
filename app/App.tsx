@@ -1,5 +1,5 @@
-// Purpose: Bootstrap the Expo app, initialize persistence, and render navigation with diagnostics.
-// Persists: Initializes SQLite tables and settings through services.
+// Purpose: Bootstrap the Expo app, initialize JSON-backed persistence, and render navigation with diagnostics.
+// Persists: Initializes AsyncStorage state and settings through services.
 // Security Risks: Handles device_install_id and locale values in memory.
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, SafeAreaView, StyleSheet, Text } from "react-native";
