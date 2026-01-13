@@ -1,12 +1,16 @@
-// Purpose: Provide typed API client functions for the Azure Functions backend.
+// Purpose: Provide typed API client functions and network logging for the Azure Functions backend.
 // Persists: No persistence.
-// Security Risks: Sends device identifiers and request IDs; avoid logging raw values.
+// Security Risks: Sends device identifiers and request IDs; avoid logging raw values or secrets.
 import Constants from "expo-constants";
 import { v4 as uuidv4 } from "uuid";
 
 import type { Locale } from "./i18n";
+import { log } from "../utils/logger";
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:7071";
+const FETCH_TIMEOUT_MS = 10000;
+
+log("net", "base_url", { base_url: API_BASE_URL });
 
 export type PortionSize = "small" | "medium" | "large";
 export type YesNoNotSure = "yes" | "no" | "not_sure";
@@ -91,8 +95,51 @@ function buildUrl(path: string): string {
   return `${API_BASE_URL}${path}`;
 }
 
+function toSafeUrl(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return rawUrl;
+  }
+}
+
+export async function fetchWithLogging(
+  rawUrl: string,
+  init?: RequestInit,
+  requestId?: string
+): Promise<Response> {
+  const method = init?.method ?? "GET";
+  const safeUrl = toSafeUrl(rawUrl);
+  const controller = new AbortController();
+  const start = Date.now();
+
+  log("net", "req", { method, url: safeUrl, request_id: requestId });
+
+  const timeoutId = setTimeout(() => {
+    log("net", "abort", { url: safeUrl, ms: FETCH_TIMEOUT_MS, request_id: requestId });
+    controller.abort();
+  }, FETCH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(rawUrl, {
+      ...init,
+      signal: controller.signal
+    });
+    log("net", "res", { status: response.status, ms: Date.now() - start, request_id: requestId });
+    return response;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log("net", "err", { message, ms: Date.now() - start, request_id: requestId });
+    console.error(error);
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export async function getStatus(): Promise<StatusResponse> {
-  const response = await fetch(buildUrl("/api/status"));
+  const response = await fetchWithLogging(buildUrl("/api/status"));
   if (!response.ok) {
     throw new Error("Status request failed");
   }
@@ -102,7 +149,7 @@ export async function getStatus(): Promise<StatusResponse> {
 export async function getLocalizationLatest(locale: Locale): Promise<LocalizationLatestResponse> {
   const url = new URL(buildUrl("/api/localization/latest"));
   url.searchParams.set("locale", locale);
-  const response = await fetch(url.toString());
+  const response = await fetchWithLogging(url.toString());
   if (!response.ok) {
     throw new Error("Localization request failed");
   }
@@ -114,16 +161,20 @@ export async function estimateCalcium(
   request: EstimateCalciumRequest
 ): Promise<ApiResult<EstimateCalciumResponse>> {
   const requestId = uuidv4();
-  const response = await fetch(buildUrl("/api/estimateCalcium"), {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-device-install-id": deviceInstallId,
-      "x-request-id": requestId,
-      "x-app-version": appVersion
+  const response = await fetchWithLogging(
+    buildUrl("/api/estimateCalcium"),
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-device-install-id": deviceInstallId,
+        "x-request-id": requestId,
+        "x-app-version": appVersion
+      },
+      body: JSON.stringify(request)
     },
-    body: JSON.stringify(request)
-  });
+    requestId
+  );
 
   if (response.ok) {
     const data = (await response.json()) as EstimateCalciumResponse;
@@ -135,13 +186,16 @@ export async function estimateCalcium(
 }
 
 export async function sendSuggestion(request: SuggestionRequest): Promise<ApiResult<SuggestionResponse>> {
-  const response = await fetch(buildUrl("/api/suggestion"), {
-    method: "POST",
-    headers: {
-      "content-type": "application/json"
-    },
-    body: JSON.stringify(request)
-  });
+  const response = await fetchWithLogging(
+    buildUrl("/api/suggestion"),
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify(request)
+    }
+  );
 
   if (response.ok) {
     const data = (await response.json()) as SuggestionResponse;
