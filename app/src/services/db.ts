@@ -9,12 +9,23 @@ const DB_NAME = "calcium_camera.db";
 
 export type DatabaseConnection = SQLite.SQLiteDatabase;
 
+type SQLiteModule = typeof SQLite & { default?: typeof SQLite };
+
+const sqliteModule = SQLite as SQLiteModule;
+const openDatabase =
+  sqliteModule.openDatabase ?? sqliteModule.default?.openDatabase;
+
 let db: DatabaseConnection | null = null;
 
 export function getDatabase(): DatabaseConnection {
   if (!db) {
     log("db", "open", { name: DB_NAME });
-    db = SQLite.openDatabase(DB_NAME);
+    if (!openDatabase) {
+      const message = "SQLite.openDatabase is unavailable.";
+      log("db", "open:error", { message });
+      throw new Error(message);
+    }
+    db = openDatabase(DB_NAME);
   }
   return db;
 }
