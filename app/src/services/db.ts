@@ -1,102 +1,195 @@
-// Purpose: Initialize and provide access to the local SQLite database tables with diagnostics.
-// Persists: Creates and updates SQLite tables meals and settings.
-// Security Risks: Handles local storage of device identifiers and meal metadata.
-import * as SQLite from "expo-sqlite";
+// Purpose: Provide JSON-backed persistence for entries and settings using AsyncStorage.
+// Persists: Reads and writes AsyncStorage key calcium_tracker_v1 (entries + settings).
+// Security Risks: Stores device identifiers and user-entered metadata in local storage.
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { log } from "../utils/logger";
 
-const DB_NAME = "calcium_camera.db";
+const STORAGE_KEY = "calcium_tracker_v1";
+const SCHEMA_VERSION = 1;
+const MAX_ENTRY_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
-export type DatabaseConnection = SQLite.SQLiteDatabase;
+type StoredEntry = {
+  id: string;
+  ts: string;
+  [k: string]: any;
+};
 
-type SQLiteModule = typeof SQLite & { default?: typeof SQLite };
+type StoredState = {
+  schemaVersion: 1;
+  entries: StoredEntry[];
+  settings: Record<string, string>;
+};
 
-const sqliteModule = SQLite as SQLiteModule;
-const openDatabase =
-  sqliteModule.openDatabase ?? sqliteModule.default?.openDatabase;
+const defaultState: StoredState = {
+  schemaVersion: SCHEMA_VERSION,
+  entries: [],
+  settings: {}
+};
 
-let db: DatabaseConnection | null = null;
+let cachedState: StoredState | null = null;
+let loadPromise: Promise<StoredState> | null = null;
+let writeChain: Promise<void> = Promise.resolve();
 
-export function getDatabase(): DatabaseConnection {
-  if (!db) {
-    log("db", "open", { name: DB_NAME });
-    // TEMP DEBUG
-    log("db", "open:sqlite-debug", {
-      sqliteImport: SQLite,
-      sqliteKeys: Object.keys(SQLite),
-      openDatabaseExists: Boolean(openDatabase),
-      openDatabaseType: typeof openDatabase,
-    });
-    if (!openDatabase) {
-      const message = "SQLite.openDatabase is unavailable.";
-      log("db", "open:error", { message });
-      throw new Error(message);
+function sanitizeState(raw: unknown): StoredState {
+  if (!raw || typeof raw !== "object") {
+    return { ...defaultState };
+  }
+  const record = raw as Record<string, unknown>;
+  const entries = Array.isArray(record.entries) ? record.entries : [];
+  const settings = record.settings && typeof record.settings === "object" ? record.settings : {};
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    entries: entries.filter((entry) => entry && typeof entry === "object") as StoredEntry[],
+    settings: settings as Record<string, string>
+  };
+}
+
+function pruneEntries(
+  entries: StoredEntry[],
+  nowMs: number = Date.now()
+): { entries: StoredEntry[]; prunedCount: number } {
+  const cutoff = nowMs - MAX_ENTRY_AGE_MS;
+  const kept: StoredEntry[] = [];
+  let prunedCount = 0;
+  for (const entry of entries) {
+    const parsed = Date.parse(entry.ts);
+    if (Number.isNaN(parsed) || parsed < cutoff) {
+      prunedCount += 1;
+    } else {
+      kept.push(entry);
     }
-    db = openDatabase(DB_NAME);
   }
-  return db;
+  return { entries: kept, prunedCount };
 }
 
-function getStatementLabel(statement: string): string {
-  const trimmed = statement.replace(/\s+/g, " ").trim();
-  if (!trimmed) {
-    return "empty";
+async function loadState(): Promise<StoredState> {
+  if (cachedState) {
+    return cachedState;
   }
-  const tokens = trimmed.split(" ").slice(0, 3);
-  return tokens.join(" ").toLowerCase();
-}
-
-export function initDatabase(): Promise<void> {
-  const database = getDatabase();
-  return new Promise((resolve, reject) => {
-    database.transaction(
-      (tx) => {
-        tx.executeSql(
-          `CREATE TABLE IF NOT EXISTS meals (
-            id TEXT PRIMARY KEY NOT NULL,
-            timestamp INTEGER NOT NULL,
-            calcium_mg INTEGER NOT NULL,
-            confidence REAL NOT NULL,
-            confidence_label TEXT NOT NULL,
-            photo_uri TEXT,
-            answers_json TEXT,
-            status TEXT NOT NULL
-          );`
-        );
-        tx.executeSql(
-          `CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY NOT NULL,
-            value TEXT NOT NULL
-          );`
-        );
-      },
-      (error) => reject(error),
-      () => resolve()
-    );
-  });
-}
-
-export function executeSql<T = SQLite.SQLResultSet>(
-  statement: string,
-  args: (string | number | null)[] = []
-): Promise<T> {
-  const database = getDatabase();
-  const statementLabel = getStatementLabel(statement);
-  log("db", "exec", { statement: statementLabel });
-  return new Promise((resolve, reject) => {
-    database.transaction((tx) => {
-      tx.executeSql(
-        statement,
-        args,
-        (_, result) => resolve(result as T),
-        (_, error) => {
-          const message = error instanceof Error ? error.message : String(error);
-          log("db", "exec:error", { statement: statementLabel, message });
-          console.error(error);
-          reject(error);
-          return false;
+  if (!loadPromise) {
+    loadPromise = AsyncStorage.getItem(STORAGE_KEY)
+      .then((stored) => {
+        if (!stored) {
+          return { ...defaultState };
         }
-      );
+        try {
+          return sanitizeState(JSON.parse(stored));
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          log("db", "load:error", { message });
+          return { ...defaultState };
+        }
+      })
+      .then((state) => {
+        cachedState = state;
+        return state;
+      })
+      .finally(() => {
+        loadPromise = null;
+      });
+  }
+  return loadPromise;
+}
+
+async function persistState(state: StoredState): Promise<void> {
+  const serialized = JSON.stringify(state);
+  await AsyncStorage.setItem(STORAGE_KEY, serialized);
+  cachedState = state;
+}
+
+function queueWrite<T>(operation: () => Promise<T>): Promise<T> {
+  const next = writeChain.then(operation, operation);
+  writeChain = next.then(
+    () => undefined,
+    () => undefined
+  );
+  return next;
+}
+
+export async function initDatabase(): Promise<void> {
+  const state = await loadState();
+  const { entries: prunedEntries, prunedCount } = pruneEntries(state.entries);
+  const updatedState = prunedCount > 0 ? { ...state, entries: prunedEntries } : state;
+  if (prunedCount > 0) {
+    await queueWrite(async () => {
+      await persistState(updatedState);
     });
+  }
+  log("db", "init", {
+    entries_loaded: state.entries.length,
+    entries_pruned: prunedCount,
+    entries_final: updatedState.entries.length
   });
 }
+
+export async function getAllEntries(): Promise<StoredEntry[]> {
+  const state = await loadState();
+  return [...state.entries];
+}
+
+export async function addEntry(entry: Partial<StoredEntry>): Promise<StoredEntry> {
+  const now = new Date();
+  const created: StoredEntry = {
+    ...entry,
+    id: entry.id ?? `${now.getTime()}-${Math.random().toString(16).slice(2)}`,
+    ts: entry.ts ?? now.toISOString()
+  } as StoredEntry;
+
+  await queueWrite(async () => {
+    const state = await loadState();
+    const { entries: prunedEntries } = pruneEntries([...state.entries, created]);
+    await persistState({ ...state, entries: prunedEntries });
+  });
+
+  return created;
+}
+
+export async function updateEntry(id: string, patch: Partial<StoredEntry>): Promise<StoredEntry | null> {
+  let updated: StoredEntry | null = null;
+  await queueWrite(async () => {
+    const state = await loadState();
+    const nextEntries = state.entries.map((entry) => {
+      if (entry.id !== id) {
+        return entry;
+      }
+      updated = { ...entry, ...patch, id: entry.id };
+      return updated as StoredEntry;
+    });
+    const { entries: prunedEntries } = pruneEntries(nextEntries);
+    await persistState({ ...state, entries: prunedEntries });
+  });
+  return updated;
+}
+
+export async function deleteEntry(id: string): Promise<void> {
+  await queueWrite(async () => {
+    const state = await loadState();
+    const remaining = state.entries.filter((entry) => entry.id !== id);
+    const { entries: prunedEntries } = pruneEntries(remaining);
+    await persistState({ ...state, entries: prunedEntries });
+  });
+}
+
+export async function clearAll(): Promise<void> {
+  await queueWrite(async () => {
+    const state = await loadState();
+    await persistState({ ...state, entries: [] });
+  });
+}
+
+export async function getSettingValue(key: string): Promise<string | null> {
+  const state = await loadState();
+  return state.settings[key] ?? null;
+}
+
+export async function setSettingValue(key: string, value: string): Promise<void> {
+  await queueWrite(async () => {
+    const state = await loadState();
+    const nextSettings = { ...state.settings, [key]: value };
+    const { entries: prunedEntries } = pruneEntries(state.entries);
+    await persistState({ ...state, entries: prunedEntries, settings: nextSettings });
+  });
+}
+
+export { pruneEntries, type StoredEntry, type StoredState };
