@@ -20,6 +20,13 @@ let db: DatabaseConnection | null = null;
 export function getDatabase(): DatabaseConnection {
   if (!db) {
     log("db", "open", { name: DB_NAME });
+    // TEMP DEBUG
+    log("db", "open:sqlite-debug", {
+      sqliteImport: SQLite,
+      sqliteKeys: Object.keys(SQLite),
+      openDatabaseExists: Boolean(openDatabase),
+      openDatabaseType: typeof openDatabase,
+    });
     if (!openDatabase) {
       const message = "SQLite.openDatabase is unavailable.";
       log("db", "open:error", { message });
