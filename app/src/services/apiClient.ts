@@ -2,9 +2,9 @@
 // Persists: No persistence.
 // Security Risks: Sends device identifiers and request IDs; avoid logging raw values or secrets.
 import Constants from "expo-constants";
-import { v4 as uuidv4 } from "uuid";
 
 import type { Locale } from "./i18n";
+import { createUuidV4 } from "../utils/uuid";
 import { log } from "../utils/logger";
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:7071";
@@ -160,7 +160,7 @@ export async function estimateCalcium(
   deviceInstallId: string,
   request: EstimateCalciumRequest
 ): Promise<ApiResult<EstimateCalciumResponse>> {
-  const requestId = uuidv4();
+  const requestId = await createUuidV4();
   const response = await fetchWithLogging(
     buildUrl("/api/estimateCalcium"),
     {

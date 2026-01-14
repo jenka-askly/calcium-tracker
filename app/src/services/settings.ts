@@ -1,9 +1,9 @@
 // Purpose: Manage persisted settings like locale and device_install_id via JSON storage with diagnostics.
 // Persists: Reads and writes settings within AsyncStorage key calcium_tracker_v1.
 // Security Risks: Handles device_install_id persistence.
-import { v4 as uuidv4 } from "uuid";
 
 import { getSettingValue, setSettingValue } from "./db";
+import { createUuidV4 } from "../utils/uuid";
 import { log } from "../utils/logger";
 
 const SETTING_LOCALE = "locale";
@@ -24,7 +24,7 @@ export async function getOrCreateDeviceInstallId(): Promise<string> {
   if (existing) {
     return existing;
   }
-  const created = uuidv4();
+  const created = await createUuidV4();
   await setSetting(SETTING_DEVICE_INSTALL_ID, created);
   return created;
 }
