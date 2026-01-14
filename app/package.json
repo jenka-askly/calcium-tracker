@@ -1,4 +1,9 @@
 {
+  "fileHeader": {
+    "purpose": "Defines the Expo React Native app package metadata, scripts, and dependency versions.",
+    "persists": "None.",
+    "securityRisks": "None."
+  },
   "name": "app",
   "version": "1.0.0",
   "main": "index.ts",
@@ -24,7 +29,7 @@
     "uuid": "^9.0.1"
   },
   "devDependencies": {
-    "@types/react": "~19.1.0",
+    "@types/react": "^18.2.6",
     "typescript": "~5.9.2"
   },
   "private": true
