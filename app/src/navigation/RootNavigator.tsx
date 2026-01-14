@@ -5,6 +5,7 @@ import React from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import { HomeScreen } from "../screens/HomeScreen";
+import { PhotoCaptureScreen } from "../screens/PhotoCaptureScreen";
 import { PhotoReviewScreen } from "../screens/PhotoReviewScreen";
 import { QuestionsScreen } from "../screens/QuestionsScreen";
 import { ResultScreen } from "../screens/ResultScreen";
@@ -14,6 +15,7 @@ import { SuggestionScreen } from "../screens/SuggestionScreen";
 
 export type RootStackParamList = {
   Home: undefined;
+  PhotoCapture: undefined;
   PhotoReview: undefined;
   Questions: undefined;
   Result: undefined;
@@ -34,6 +36,7 @@ export function RootNavigator() {
       }}
     >
       <Stack.Screen name="Home" component={HomeScreen} />
+      <Stack.Screen name="PhotoCapture" component={PhotoCaptureScreen} />
       <Stack.Screen name="PhotoReview" component={PhotoReviewScreen} />
       <Stack.Screen name="Questions" component={QuestionsScreen} />
       <Stack.Screen name="Result" component={ResultScreen} />

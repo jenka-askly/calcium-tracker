@@ -41,7 +41,7 @@ export function HomeScreen({ navigation }: Props) {
       {statusMessage ? <Text style={styles.banner}>{statusMessage}</Text> : null}
       <PrimaryButton
         label={translate(strings, "take_photo")}
-        onPress={() => navigation.navigate("PhotoReview")}
+        onPress={() => navigation.navigate("PhotoCapture")}
       />
       <PrimaryButton
         label={translate(strings, "report_30_days")}
