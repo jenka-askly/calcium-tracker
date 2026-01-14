@@ -7,6 +7,7 @@ import { NavigationContainer } from "@react-navigation/native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { AppContextProvider } from "./src/context/AppContext";
+import { PhotoCaptureProvider, type PhotoCaptureState } from "./src/context/PhotoCaptureContext";
 import { RootNavigator } from "./src/navigation/RootNavigator";
 import { initDatabase } from "./src/services/db";
 import { getLocaleSetting, getOrCreateDeviceInstallId, setLocaleSetting } from "./src/services/settings";
@@ -30,6 +31,7 @@ export default function App() {
   const [bootError, setBootError] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState("boot:start");
   const [navReady, setNavReady] = useState(false);
+  const [photo, setPhoto] = useState<PhotoCaptureState | null>(null);
   const bootStartRef = useRef<number>(Date.now());
   const currentStepRef = useRef(currentStep);
 
@@ -168,24 +170,26 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <AppContextProvider
-        value={{
-          locale,
-          strings,
-          deviceInstallId,
-          uiVersion,
-          setLocale: handleLocaleChange
-        }}
-      >
-        <NavigationContainer
-          onReady={() => {
-            log("boot", "step", { step: "navigation:mount", phase: "end" });
-            setNavReady(true);
+      <PhotoCaptureProvider value={{ photo, setPhoto }}>
+        <AppContextProvider
+          value={{
+            locale,
+            strings,
+            deviceInstallId,
+            uiVersion,
+            setLocale: handleLocaleChange
           }}
         >
-          <RootNavigator />
-        </NavigationContainer>
-      </AppContextProvider>
+          <NavigationContainer
+            onReady={() => {
+              log("boot", "step", { step: "navigation:mount", phase: "end" });
+              setNavReady(true);
+            }}
+          >
+            <RootNavigator />
+          </NavigationContainer>
+        </AppContextProvider>
+      </PhotoCaptureProvider>
     </SafeAreaProvider>
   );
 }
