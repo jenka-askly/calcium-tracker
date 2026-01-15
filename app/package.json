@@ -23,14 +23,14 @@
     "expo-crypto": "~14.0.0",
     "expo-file-system": "~18.0.0",
     "expo-localization": "~16.0.0",
-    "react": "18.3.1",
-    "react-native": "0.77.0",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
     "react-native-safe-area-context": "5.2.0",
     "react-native-screens": "~4.0.0",
     "uuid": "^9.0.1"
   },
   "devDependencies": {
-    "@types/react": "^18.2.6",
+    "@types/react": "~19.1.0",
     "typescript": "~5.9.2"
   },
   "private": true
