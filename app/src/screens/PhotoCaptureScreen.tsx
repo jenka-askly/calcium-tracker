@@ -2,7 +2,7 @@
 // Persists: No persistence; stores capture metadata in memory via context.
 // Security Risks: Requests camera permissions and handles local file URIs.
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, AppState, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, StyleSheet, Text, View } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { CameraView, type CameraViewRef, useCameraPermissions } from "expo-camera";
 import * as FileSystem from "expo-file-system";
@@ -21,188 +21,10 @@ export function PhotoCaptureScreen({ navigation }: Props) {
   const { strings } = useAppContext();
   const { setPhoto } = usePhotoCaptureContext();
   const cameraRef = useRef<CameraViewRef | null>(null);
-  const [permission, requestPermission] = useCameraPermissions();
+  const [permission] = useCameraPermissions();
   const [isReady, setIsReady] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const captureDisabled = isCapturing;
-
-  const takePicture = useCallback(
-    async (captureId: string) => {
-      const hasPermission = permission?.granted ?? false;
-      const isCameraReady = isReady;
-      const refPresent = !!cameraRef.current;
-      // DEBUG CAPTURE PIPELINE
-      log("photo_capture", "capture:takePicture_start", {
-        capture_id: captureId,
-        hasPermission,
-        isCameraReady,
-        refPresent
-      });
-      // DEBUG CAPTURE PIPELINE
-
-      let watchdogSettled = false;
-      const watchdogId = setTimeout(() => {
-        if (watchdogSettled) {
-          return;
-        }
-        watchdogSettled = true;
-        // DEBUG CAPTURE PIPELINE
-        log("photo_capture", "capture:hang", { capture_id: captureId });
-        Alert.alert("Capture appears stuck");
-        // DEBUG CAPTURE PIPELINE
-      }, 5000);
-
-      const settleWatchdog = () => {
-        if (watchdogSettled) {
-          return;
-        }
-        watchdogSettled = true;
-        clearTimeout(watchdogId);
-      };
-
-      const guardReturn = (reason: string, alertMessage: string) => {
-        settleWatchdog();
-        // DEBUG CAPTURE PIPELINE
-        log("photo_capture", "capture:guard_return", {
-          capture_id: captureId,
-          reason
-        });
-        // DEBUG CAPTURE PIPELINE
-        Alert.alert(alertMessage);
-      };
-
-      try {
-        // DEBUG PHOTO PIPELINE
-        const beforeStatus = permission?.status ?? "unknown";
-        log("photo_capture", "permission_status", {
-          capture_id: captureId,
-          phase: "before_request",
-          status: beforeStatus,
-          granted: permission?.granted ?? false
-        });
-        // DEBUG PHOTO PIPELINE
-
-        let afterStatus = beforeStatus;
-        let afterGranted = permission?.granted ?? false;
-        if (!permission?.granted) {
-          const response = await requestPermission();
-          afterStatus = response.status;
-          afterGranted = response.granted;
-        }
-
-        // DEBUG PHOTO PIPELINE
-        log("photo_capture", "permission_status", {
-          capture_id: captureId,
-          phase: "after_request",
-          status: afterStatus,
-          granted: afterGranted
-        });
-        // DEBUG PHOTO PIPELINE
-
-        if (!afterGranted) {
-          guardReturn("permission_missing", "Camera permission missing");
-          return;
-        }
-
-        if (!cameraRef.current) {
-          guardReturn("camera_ref_missing", "Camera not mounted (ref null)");
-          return;
-        }
-
-        if (!isReady) {
-          guardReturn("camera_not_ready", "Camera not ready yet");
-          return;
-        }
-
-        // DEBUG CAPTURE PIPELINE
-        log("photo_capture", "capture:takePicture_call", { capture_id: captureId });
-        // DEBUG CAPTURE PIPELINE
-        const result = await cameraRef.current.takePictureAsync({ quality: 0.8 });
-
-        settleWatchdog();
-
-        // DEBUG CAPTURE
-        log("camera", "capture:success", {
-          captureId,
-          uri: result.uri,
-          width: result.width,
-          height: result.height
-        });
-        // DEBUG CAPTURE
-        // DEBUG CAPTURE PIPELINE
-        log("photo_capture", "capture:takePicture_success", {
-          capture_id: captureId,
-          uri: result.uri,
-          width: result.width,
-          height: result.height
-        });
-        // DEBUG CAPTURE PIPELINE
-
-        // DEBUG PHOTO PIPELINE
-        log("photo_capture", "capture_result", {
-          capture_id: captureId,
-          uri: result.uri,
-          width: result.width,
-          height: result.height
-        });
-        // DEBUG PHOTO PIPELINE
-
-        const info = await FileSystem.getInfoAsync(result.uri);
-
-        // DEBUG CAPTURE PIPELINE
-        log("photo_capture", "capture:file_info", {
-          capture_id: captureId,
-          exists: info.exists,
-          size: info.size ?? null
-        });
-        // DEBUG CAPTURE PIPELINE
-
-        const nextPhoto = {
-          uri: result.uri,
-          width: result.width,
-          height: result.height,
-          captureId,
-          source: "camera" as const
-        };
-
-        // DEBUG CAPTURE PIPELINE
-        log("photo_capture", "capture:set_state", {
-          capture_id: captureId,
-          uri: nextPhoto.uri,
-          width: nextPhoto.width,
-          height: nextPhoto.height,
-          source: nextPhoto.source
-        });
-        // DEBUG CAPTURE PIPELINE
-
-        setPhoto(nextPhoto);
-        // DEBUG CAPTURE PIPELINE
-        log("photo_capture", "capture:navigate_review", { capture_id: captureId });
-        // DEBUG CAPTURE PIPELINE
-        navigation.navigate("PhotoReview");
-      } catch (error) {
-        settleWatchdog();
-        const message = error instanceof Error ? error.message : String(error);
-        const stack = error instanceof Error ? error.stack ?? null : null;
-        // DEBUG CAPTURE
-        log("camera", "capture:error", { captureId, message });
-        Alert.alert("Capture failed", message);
-        // DEBUG CAPTURE
-        // DEBUG CAPTURE PIPELINE
-        log("photo_capture", "capture:error", { capture_id: captureId, message, stack });
-        // DEBUG CAPTURE PIPELINE
-        // DEBUG PHOTO PIPELINE
-        log("photo_capture", "capture_error", { capture_id: captureId, message });
-        // DEBUG PHOTO PIPELINE
-      } finally {
-        settleWatchdog();
-        // DEBUG CAPTURE PIPELINE
-        log("photo_capture", "capture:finally", { capture_id: captureId });
-        // DEBUG CAPTURE PIPELINE
-      }
-    },
-    [isReady, navigation, permission, requestPermission, setPhoto]
-  );
 
   useEffect(() => {
     // DEBUG PHOTO PIPELINE
@@ -221,79 +43,15 @@ export function PhotoCaptureScreen({ navigation }: Props) {
     // DEBUG PHOTO PIPELINE
   }, []);
 
-  const handleCapture = useCallback(async () => {
-    const captureId = uuidv4();
-    // DEBUG CAPTURE PIPELINE
-    log("photo_capture", "capture:handler_enter", { capture_id: captureId });
-    // DEBUG CAPTURE PIPELINE
-    // DEBUG CAPTURE
-    log("camera", "capture:press", { captureId });
-    Alert.alert("Capture pressed", captureId);
-    const appState = AppState.currentState ?? "unknown";
-    log("camera", "capture:state", {
-      captureId,
-      hasPermission: permission?.granted ?? false,
-      permissionStatus: permission?.status ?? "unknown",
-      cameraRefPresent: !!cameraRef.current,
-      isCameraReady: isReady,
-      appState
-    });
-    // DEBUG CAPTURE
-    // DEBUG CAPTURE PIPELINE
-    log("photo_capture", "capture:prechecks", {
-      capture_id: captureId,
-      permission_status: permission?.status ?? "unknown",
-      hasPermission: permission?.granted ?? false,
-      isCameraReady: isReady,
-      cameraRefPresent: !!cameraRef.current,
-      isCapturing,
-      captureDisabled
-    });
-    // DEBUG CAPTURE PIPELINE
-
-    if (isCapturing) {
-      log("camera", "capture:blocked", {
-        captureId,
-        reason: "capture_in_progress"
-      });
-      // DEBUG CAPTURE PIPELINE
-      log("photo_capture", "capture:error", {
-        capture_id: captureId,
-        message: "capture_in_progress"
-      });
-      // DEBUG CAPTURE PIPELINE
-      log("photo_capture", "capture:handler_return", {
-        capture_id: captureId,
-        reason: "capture_in_progress"
-      });
-      return;
-    }
-
-    setIsCapturing(true);
-
-    try {
-      // DEBUG CAPTURE PIPELINE
-      log("photo_capture", "capture:handler_before_call", { capture_id: captureId });
-      // DEBUG CAPTURE PIPELINE
-      await takePicture(captureId);
-      // DEBUG CAPTURE PIPELINE
-      log("photo_capture", "capture:handler_after_call", { capture_id: captureId });
-      // DEBUG CAPTURE PIPELINE
-    } finally {
-      setIsCapturing(false);
-    }
-  }, [isCapturing, takePicture]);
-
   useEffect(() => {
     // DEBUG TOUCH
     log("photo_capture", "render:capture_button", {
       hasPermission: permission?.granted ?? false,
       isCameraReady: isReady,
-      disabled: captureDisabled,
-      onPressType: typeof handleCapture
+      disabled: captureDisabled
     });
     // DEBUG TOUCH
-  }, [captureDisabled, handleCapture, isReady, permission?.granted]);
+  }, [captureDisabled, isReady, permission?.granted]);
 
   return (
     <View style={styles.container}>
@@ -312,7 +70,6 @@ export function PhotoCaptureScreen({ navigation }: Props) {
         label="DEBUG CAPTURE"
         onPress={() => {
           log("photo_capture", "capture:debug_button_press", {});
-          handleCapture();
         }}
       />
       {/* DEBUG TOUCH */}
@@ -352,11 +109,133 @@ export function PhotoCaptureScreen({ navigation }: Props) {
       <View style={styles.captureContainer} pointerEvents="box-none">
         <PrimaryButton
           label={translate(strings, "capture_photo")}
-          onPress={() => {
+          onPress={async () => {
+            log("photo_capture", "capture:handler_enter", {});
+            Alert.alert("DEBUG", "capture handler enter");
             // DEBUG TOUCH
             log("photo_capture", "capture:press", {});
             // DEBUG TOUCH
-            handleCapture();
+
+            const captureId = uuidv4();
+            const hasPermission = permission?.granted ?? false;
+            const isCameraReady = isReady;
+            const refPresent = !!cameraRef.current;
+
+            log("photo_capture", "capture:prechecks", {
+              hasPermission,
+              isCameraReady,
+              refPresent
+            });
+
+            if (isCapturing) {
+              log("photo_capture", "capture:guard_return", {
+                reason: "capture_in_progress"
+              });
+              Alert.alert("Capture blocked", "capture_in_progress");
+              return;
+            }
+
+            if (!hasPermission) {
+              log("photo_capture", "capture:guard_return", {
+                reason: "permission_missing"
+              });
+              Alert.alert("Capture blocked", "permission_missing");
+              return;
+            }
+
+            if (!isCameraReady) {
+              log("photo_capture", "capture:guard_return", {
+                reason: "camera_not_ready"
+              });
+              Alert.alert("Capture blocked", "camera_not_ready");
+              return;
+            }
+
+            if (!refPresent) {
+              log("photo_capture", "capture:guard_return", {
+                reason: "camera_ref_missing"
+              });
+              Alert.alert("Capture blocked", "camera_ref_missing");
+              return;
+            }
+
+            setIsCapturing(true);
+            let watchdogId: ReturnType<typeof setTimeout> | null = null;
+            let watchdogSettled = false;
+
+            const clearWatchdog = () => {
+              if (watchdogSettled) {
+                return;
+              }
+              watchdogSettled = true;
+              if (watchdogId) {
+                clearTimeout(watchdogId);
+              }
+            };
+
+            try {
+              log("photo_capture", "capture:takePicture_start", {});
+              watchdogId = setTimeout(() => {
+                if (watchdogSettled) {
+                  return;
+                }
+                watchdogSettled = true;
+                log("photo_capture", "capture:hang", {});
+                Alert.alert("Capture appears stuck");
+              }, 5000);
+
+              const photo = await cameraRef.current.takePictureAsync({ quality: 0.8 });
+              clearWatchdog();
+
+              log("photo_capture", "capture:takePicture_success", {
+                uri: photo?.uri ?? null,
+                width: photo?.width ?? null,
+                height: photo?.height ?? null
+              });
+
+              if (!photo?.uri) {
+                log("photo_capture", "capture:error", {
+                  message: "missing_photo_uri"
+                });
+                Alert.alert("Capture failed", "missing_photo_uri");
+                return;
+              }
+
+              const info = await FileSystem.getInfoAsync(photo.uri);
+              log("photo_capture", "capture:file_info", {
+                exists: info.exists,
+                size: info.size ?? null
+              });
+
+              const nextPhoto = {
+                uri: photo.uri,
+                width: photo.width,
+                height: photo.height,
+                captureId,
+                source: "camera" as const
+              };
+
+              log("photo_capture", "capture:set_state", {
+                uri: nextPhoto.uri,
+                width: nextPhoto.width,
+                height: nextPhoto.height
+              });
+              setPhoto(nextPhoto);
+
+              log("photo_capture", "capture:navigate_review", {
+                uri: nextPhoto.uri
+              });
+              navigation.navigate("PhotoReview");
+            } catch (error) {
+              clearWatchdog();
+              const message = error instanceof Error ? error.message : String(error);
+              const stack = error instanceof Error ? error.stack ?? null : null;
+              log("photo_capture", "capture:error", { message, stack });
+              Alert.alert("Capture failed", message);
+            } finally {
+              clearWatchdog();
+              setIsCapturing(false);
+            }
           }}
           onPressIn={() => {
             // DEBUG TOUCH
