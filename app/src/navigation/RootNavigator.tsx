@@ -8,6 +8,7 @@ import { HomeScreen } from "../screens/HomeScreen";
 import { PhotoCaptureScreen } from "../screens/PhotoCaptureScreen";
 import { PhotoReviewScreen } from "../screens/PhotoReviewScreen";
 import { QuestionsScreen } from "../screens/QuestionsScreen";
+import type { QuestionDefinition } from "../types/questions";
 import { ResultScreen } from "../screens/ResultScreen";
 import { TodayScreen } from "../screens/TodayScreen";
 import { ReportScreen } from "../screens/ReportScreen";
@@ -17,7 +18,7 @@ export type RootStackParamList = {
   Home: undefined;
   PhotoCapture: undefined;
   PhotoReview: undefined;
-  Questions: undefined;
+  Questions: { questions?: QuestionDefinition[] } | undefined;
   Result: undefined;
   Today: undefined;
   Report: undefined;

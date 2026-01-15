@@ -1,10 +1,9 @@
-// Purpose: Collect the three required estimation questions with large-button options and verify backend readiness.
+// Purpose: Collect estimation questions, show diagnostics for missing question data, and allow fail-open progress.
 // Persists: No persistence.
-// Security Risks: None.
-import React, { useCallback, useEffect, useRef, useState } from "react";
+// Security Risks: Handles local photo metadata for submission and logging without exposing PII.
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
-  Dimensions,
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
@@ -29,26 +28,123 @@ import {
 } from "../services/apiClient";
 import { translate } from "../services/i18n";
 import type { RootStackParamList } from "../navigation/RootNavigator";
+import type { QuestionDefinition } from "../types/questions";
 import { error as logError, log } from "../utils/logger";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Questions">;
 
-export function QuestionsScreen({ navigation }: Props) {
+const DEFAULT_QUESTIONS: QuestionDefinition[] = [
+  {
+    id: "portion_size",
+    labelKey: "question_portion_size",
+    options: [
+      { id: "portion_small", labelKey: "portion_small" },
+      { id: "portion_medium", labelKey: "portion_medium" },
+      { id: "portion_large", labelKey: "portion_large" }
+    ]
+  },
+  {
+    id: "contains_dairy",
+    labelKey: "question_contains_dairy",
+    options: [
+      { id: "yes", labelKey: "yes" },
+      { id: "no", labelKey: "no" },
+      { id: "not_sure", labelKey: "not_sure" }
+    ]
+  },
+  {
+    id: "contains_tofu_or_small_fish_bones",
+    labelKey: "question_contains_tofu",
+    options: [
+      { id: "yes", labelKey: "yes" },
+      { id: "no", labelKey: "no" },
+      { id: "not_sure", labelKey: "not_sure" }
+    ]
+  }
+];
+
+export function QuestionsScreen({ navigation, route }: Props) {
   const { strings, locale, deviceInstallId, uiVersion } = useAppContext();
   const { photo } = usePhotoCaptureContext();
   const [portionSize, setPortionSize] = useState<string | null>(null);
   const [containsDairy, setContainsDairy] = useState<string | null>(null);
   const [containsTofu, setContainsTofu] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [questions, setQuestions] = useState<QuestionDefinition[]>(DEFAULT_QUESTIONS);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const hasLoggedScroll = useRef(false);
-  const questionCount = 3;
-  const panelMaxHeight = Math.round(Dimensions.get("window").height * 0.85);
+  const lastRenderLog = useRef<string | null>(null);
+  const photoUri = photo?.uri ?? null;
+  const captureId = photo?.captureId ?? null;
 
-  const canContinue = Boolean(portionSize && containsDairy && containsTofu);
+  const questionsCount = useMemo(() => questions?.length ?? 0, [questions]);
+  const disabledReasons = useMemo(() => {
+    const reasons: string[] = [];
+    if (loading) reasons.push("loading");
+    if (!photoUri) reasons.push("missing_photo_uri");
+    if (!captureId) reasons.push("missing_capture_id");
+    if (questionsCount === 0) reasons.push("no_questions");
+    if (error) reasons.push(`error:${String(error)}`);
+    return reasons;
+  }, [captureId, error, loading, photoUri, questionsCount]);
+
+  const canProceed = useMemo(() => {
+    if (!loading && questionsCount === 0) {
+      return true;
+    }
+    return Boolean(portionSize && containsDairy && containsTofu);
+  }, [containsDairy, containsTofu, loading, portionSize, questionsCount]);
+
+  const loadQuestions = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    const routeQuestions = route.params?.questions;
+    log("questions", "route_params_questions", {
+      count: routeQuestions?.length ?? 0
+    });
+    if (!routeQuestions || routeQuestions.length === 0) {
+      setError("missing_questions_params");
+      setQuestions((prev) => (DEFAULT_QUESTIONS.length ? DEFAULT_QUESTIONS : prev));
+    } else {
+      setQuestions((prev) => (routeQuestions.length ? routeQuestions : prev));
+    }
+    setLoading(false);
+  }, [route.params?.questions]);
 
   useEffect(() => {
-    log("questions", "render", { question_count: questionCount });
-  }, [questionCount]);
+    loadQuestions();
+  }, [loadQuestions]);
+
+  useEffect(() => {
+    const renderState = {
+      loading,
+      error: error ? String(error) : null,
+      questionsCount,
+      questionIds: (questions ?? [])
+        .map((question) => question.id ?? question.key ?? question.slug ?? question.labelKey)
+        .slice(0, 10),
+      hasPhotoUri: !!photoUri,
+      captureIdPresent: !!captureId,
+      disabledReasons,
+      routeParamsKeys: Object.keys(route.params ?? {})
+    };
+    const signature = JSON.stringify(renderState);
+    if (lastRenderLog.current === signature) {
+      return;
+    }
+    lastRenderLog.current = signature;
+    log("questions", "render_state", renderState);
+  }, [
+    captureId,
+    disabledReasons,
+    error,
+    loading,
+    photoUri,
+    questions,
+    questionsCount,
+    route.params
+  ]);
 
   const showErrorAlert = useCallback(
     (error: ApiClientError, onRetry: () => void) => {
@@ -88,13 +184,13 @@ export function QuestionsScreen({ navigation }: Props) {
     if (isSubmitting) {
       return;
     }
-    if (!photo?.uri) {
+    if (!photoUri) {
       Alert.alert("Photo missing", "Please retake the photo before continuing.");
       navigation.goBack();
       return;
     }
 
-    if (!canContinue) {
+    if (!canProceed) {
       return;
     }
 
@@ -202,7 +298,7 @@ export function QuestionsScreen({ navigation }: Props) {
       setIsSubmitting(false);
     }
   }, [
-    canContinue,
+    canProceed,
     containsDairy,
     containsTofu,
     deviceInstallId,
@@ -210,6 +306,7 @@ export function QuestionsScreen({ navigation }: Props) {
     locale,
     navigation,
     photo,
+    photoUri,
     portionSize,
     showErrorAlert,
     uiVersion
@@ -220,8 +317,36 @@ export function QuestionsScreen({ navigation }: Props) {
       return;
     }
     hasLoggedScroll.current = true;
-    log("questions", "scroll", { question_count: questionCount });
-  }, [questionCount]);
+    log("questions", "scroll", { question_count: questionsCount });
+  }, [questionsCount]);
+
+  const handleRetry = useCallback(() => {
+    log("questions", "retry_pressed", { disabled_reasons: disabledReasons });
+    loadQuestions();
+  }, [disabledReasons, loadQuestions]);
+
+  const handleContinueWithoutQuestions = useCallback(() => {
+    log("questions", "continue_without_questions_pressed", {
+      disabled_reasons: disabledReasons
+    });
+    void handleSubmit();
+  }, [disabledReasons, handleSubmit]);
+
+  const getAnswerState = useCallback(
+    (questionId: string) => {
+      switch (questionId) {
+        case "portion_size":
+          return { value: portionSize, onChange: setPortionSize };
+        case "contains_dairy":
+          return { value: containsDairy, onChange: setContainsDairy };
+        case "contains_tofu_or_small_fish_bones":
+          return { value: containsTofu, onChange: setContainsTofu };
+        default:
+          return { value: null, onChange: () => {} };
+      }
+    },
+    [containsDairy, containsTofu, portionSize]
+  );
 
   return (
     <SafeAreaView style={styles.container}>
@@ -229,57 +354,55 @@ export function QuestionsScreen({ navigation }: Props) {
         style={styles.keyboardAvoiding}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <View style={[styles.panel, { maxHeight: panelMaxHeight }]}>
+        <View style={styles.panel}>
           <Text style={styles.title}>{translate(strings, "questions_title")}</Text>
 
-          <ScrollView
-            style={styles.scroll}
-            contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
-            onScrollBeginDrag={handleScrollBeginDrag}
-          >
-            <Text style={styles.questionLabel}>
-              {translate(strings, "question_portion_size")}
-            </Text>
-            <View style={styles.optionRow}>
-              {["portion_small", "portion_medium", "portion_large"].map((key) => (
+          {!loading && questionsCount === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyTitle}>No questions loaded</Text>
+              <Text style={styles.emptySubtitle}>{disabledReasons.join(", ")}</Text>
+              <View style={styles.emptyButtons}>
+                <PrimaryButton label="Retry" onPress={handleRetry} />
                 <PrimaryButton
-                  key={key}
-                  label={translate(strings, key)}
-                  onPress={() => setPortionSize(key)}
-                  style={portionSize === key ? styles.optionSelected : styles.optionButton}
+                  label="Continue"
+                  onPress={handleContinueWithoutQuestions}
+                  style={styles.secondaryButton}
                 />
-              ))}
+              </View>
             </View>
-
-            <Text style={styles.questionLabel}>
-              {translate(strings, "question_contains_dairy")}
-            </Text>
-            <View style={styles.optionRow}>
-              {["yes", "no", "not_sure"].map((key) => (
-                <PrimaryButton
-                  key={key}
-                  label={translate(strings, key)}
-                  onPress={() => setContainsDairy(key)}
-                  style={containsDairy === key ? styles.optionSelected : styles.optionButton}
-                />
-              ))}
-            </View>
-
-            <Text style={styles.questionLabel}>
-              {translate(strings, "question_contains_tofu")}
-            </Text>
-            <View style={styles.optionRow}>
-              {["yes", "no", "not_sure"].map((key) => (
-                <PrimaryButton
-                  key={key}
-                  label={translate(strings, key)}
-                  onPress={() => setContainsTofu(key)}
-                  style={containsTofu === key ? styles.optionSelected : styles.optionButton}
-                />
-              ))}
-            </View>
-          </ScrollView>
+          ) : (
+            <ScrollView
+              style={styles.scroll}
+              contentContainerStyle={styles.scrollContent}
+              keyboardShouldPersistTaps="handled"
+              onScrollBeginDrag={handleScrollBeginDrag}
+            >
+              {questions.map((question) => {
+                const answerState = getAnswerState(question.id);
+                return (
+                  <View key={question.id} style={styles.questionBlock}>
+                    <Text style={styles.questionLabel}>
+                      {translate(strings, question.labelKey)}
+                    </Text>
+                    <View style={styles.optionRow}>
+                      {question.options.map((option) => (
+                        <PrimaryButton
+                          key={option.id}
+                          label={translate(strings, option.labelKey)}
+                          onPress={() => answerState.onChange(option.id)}
+                          style={
+                            answerState.value === option.id
+                              ? styles.optionSelected
+                              : styles.optionButton
+                          }
+                        />
+                      ))}
+                    </View>
+                  </View>
+                );
+              })}
+            </ScrollView>
+          )}
 
           <View style={styles.footer}>
             <PrimaryButton
@@ -290,7 +413,7 @@ export function QuestionsScreen({ navigation }: Props) {
             <PrimaryButton
               label={translate(strings, "next")}
               onPress={handleSubmit}
-              disabled={!canContinue || isSubmitting}
+              disabled={!canProceed || isSubmitting}
               style={styles.footerButton}
             />
           </View>
@@ -315,6 +438,7 @@ const styles = StyleSheet.create({
   },
   panel: {
     width: "90%",
+    maxHeight: "85%",
     backgroundColor: "#fff",
     borderRadius: 20,
     padding: 20,
@@ -336,6 +460,9 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 24
   },
+  questionBlock: {
+    marginBottom: 8
+  },
   questionLabel: {
     fontSize: 20,
     marginTop: 16
@@ -348,6 +475,30 @@ const styles = StyleSheet.create({
   },
   optionSelected: {
     backgroundColor: "#38a169"
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 24
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: "600",
+    marginBottom: 8
+  },
+  emptySubtitle: {
+    fontSize: 14,
+    color: "#4a5568",
+    textAlign: "center",
+    marginBottom: 16
+  },
+  emptyButtons: {
+    width: "100%",
+    gap: 12
+  },
+  secondaryButton: {
+    backgroundColor: "#4a5568"
   },
   footer: {
     flexDirection: "row",
