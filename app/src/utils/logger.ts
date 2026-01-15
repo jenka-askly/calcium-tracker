@@ -53,6 +53,10 @@ export function log(scope: string, event: string, data?: unknown): void {
   emit("log", buildPayload(scope, event, data));
 }
 
+export function error(scope: string, event: string, data?: unknown): void {
+  emit("error", buildPayload(scope, event, data));
+}
+
 export async function span<T>(scope: string, event: string, fn: () => Promise<T>): Promise<T> {
   const start = Date.now();
   emit("log", buildPayload(scope, `${event}:start`));
