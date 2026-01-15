@@ -1,8 +1,18 @@
 // Purpose: Collect the three required estimation questions with large-button options and verify backend readiness.
 // Persists: No persistence.
 // Security Risks: None.
-import React, { useCallback, useState } from "react";
-import { Alert, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Alert,
+  Dimensions,
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View
+} from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as FileSystem from "expo-file-system";
 
@@ -30,8 +40,15 @@ export function QuestionsScreen({ navigation }: Props) {
   const [containsDairy, setContainsDairy] = useState<string | null>(null);
   const [containsTofu, setContainsTofu] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const hasLoggedScroll = useRef(false);
+  const questionCount = 3;
+  const panelMaxHeight = Math.round(Dimensions.get("window").height * 0.85);
 
   const canContinue = Boolean(portionSize && containsDairy && containsTofu);
+
+  useEffect(() => {
+    log("questions", "render", { question_count: questionCount });
+  }, [questionCount]);
 
   const showErrorAlert = useCallback(
     (error: ApiClientError, onRetry: () => void) => {
@@ -198,64 +215,126 @@ export function QuestionsScreen({ navigation }: Props) {
     uiVersion
   ]);
 
+  const handleScrollBeginDrag = useCallback(() => {
+    if (hasLoggedScroll.current) {
+      return;
+    }
+    hasLoggedScroll.current = true;
+    log("questions", "scroll", { question_count: questionCount });
+  }, [questionCount]);
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>{translate(strings, "questions_title")}</Text>
+    <SafeAreaView style={styles.container}>
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoiding}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <View style={[styles.panel, { maxHeight: panelMaxHeight }]}>
+          <Text style={styles.title}>{translate(strings, "questions_title")}</Text>
 
-      <Text style={styles.questionLabel}>{translate(strings, "question_portion_size")}</Text>
-      <View style={styles.optionRow}>
-        {["portion_small", "portion_medium", "portion_large"].map((key) => (
-          <PrimaryButton
-            key={key}
-            label={translate(strings, key)}
-            onPress={() => setPortionSize(key)}
-            style={portionSize === key ? styles.optionSelected : styles.optionButton}
-          />
-        ))}
-      </View>
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            onScrollBeginDrag={handleScrollBeginDrag}
+          >
+            <Text style={styles.questionLabel}>
+              {translate(strings, "question_portion_size")}
+            </Text>
+            <View style={styles.optionRow}>
+              {["portion_small", "portion_medium", "portion_large"].map((key) => (
+                <PrimaryButton
+                  key={key}
+                  label={translate(strings, key)}
+                  onPress={() => setPortionSize(key)}
+                  style={portionSize === key ? styles.optionSelected : styles.optionButton}
+                />
+              ))}
+            </View>
 
-      <Text style={styles.questionLabel}>{translate(strings, "question_contains_dairy")}</Text>
-      <View style={styles.optionRow}>
-        {["yes", "no", "not_sure"].map((key) => (
-          <PrimaryButton
-            key={key}
-            label={translate(strings, key)}
-            onPress={() => setContainsDairy(key)}
-            style={containsDairy === key ? styles.optionSelected : styles.optionButton}
-          />
-        ))}
-      </View>
+            <Text style={styles.questionLabel}>
+              {translate(strings, "question_contains_dairy")}
+            </Text>
+            <View style={styles.optionRow}>
+              {["yes", "no", "not_sure"].map((key) => (
+                <PrimaryButton
+                  key={key}
+                  label={translate(strings, key)}
+                  onPress={() => setContainsDairy(key)}
+                  style={containsDairy === key ? styles.optionSelected : styles.optionButton}
+                />
+              ))}
+            </View>
 
-      <Text style={styles.questionLabel}>{translate(strings, "question_contains_tofu")}</Text>
-      <View style={styles.optionRow}>
-        {["yes", "no", "not_sure"].map((key) => (
-          <PrimaryButton
-            key={key}
-            label={translate(strings, key)}
-            onPress={() => setContainsTofu(key)}
-            style={containsTofu === key ? styles.optionSelected : styles.optionButton}
-          />
-        ))}
-      </View>
+            <Text style={styles.questionLabel}>
+              {translate(strings, "question_contains_tofu")}
+            </Text>
+            <View style={styles.optionRow}>
+              {["yes", "no", "not_sure"].map((key) => (
+                <PrimaryButton
+                  key={key}
+                  label={translate(strings, key)}
+                  onPress={() => setContainsTofu(key)}
+                  style={containsTofu === key ? styles.optionSelected : styles.optionButton}
+                />
+              ))}
+            </View>
+          </ScrollView>
 
-      <PrimaryButton
-        label={translate(strings, "result_title")}
-        onPress={handleSubmit}
-        disabled={!canContinue || isSubmitting}
-      />
-    </View>
+          <View style={styles.footer}>
+            <PrimaryButton
+              label={translate(strings, "back")}
+              onPress={() => navigation.goBack()}
+              style={styles.footerButton}
+            />
+            <PrimaryButton
+              label={translate(strings, "next")}
+              onPress={handleSubmit}
+              disabled={!canContinue || isSubmitting}
+              style={styles.footerButton}
+            />
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 20
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#f7fafc"
+  },
+  keyboardAvoiding: {
+    flex: 1,
+    width: "100%",
+    justifyContent: "center",
+    alignItems: "center"
+  },
+  panel: {
+    width: "90%",
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 20,
+    flexShrink: 1,
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4
   },
   title: {
     fontSize: 28,
     fontWeight: "700",
     marginBottom: 12
+  },
+  scroll: {
+    flex: 1
+  },
+  scrollContent: {
+    paddingBottom: 24
   },
   questionLabel: {
     fontSize: 20,
@@ -269,5 +348,14 @@ const styles = StyleSheet.create({
   },
   optionSelected: {
     backgroundColor: "#38a169"
+  },
+  footer: {
+    flexDirection: "row",
+    gap: 12,
+    paddingTop: 8,
+    paddingBottom: 12
+  },
+  footerButton: {
+    flex: 1
   }
 });
