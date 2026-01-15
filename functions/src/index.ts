@@ -1,4 +1,4 @@
-// Purpose: Define Azure Functions HTTP endpoints matching the API contract schemas.
+// Purpose: Define Azure Functions HTTP endpoints matching the API contract schemas with safe config logging.
 // Persists: No persistence.
 // Security Risks: Handles request IDs, device identifiers, and OpenAI API calls; avoid logging raw values.
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
@@ -77,12 +77,13 @@ function getHeader(request: HttpRequest, name: string): string | undefined {
   return request.headers.get(name) ?? undefined;
 }
 
-function invalidRequest(message: string): HttpResponseInit {
+function invalidRequest(message: string, requestId?: string): HttpResponseInit {
   return {
     status: 400,
     jsonBody: {
       error: "invalid_request",
-      message
+      message,
+      ...(requestId ? { request_id: requestId } : {})
     }
   };
 }
@@ -98,22 +99,24 @@ function errorResponse(status: number, error: string, message: string, requestId
   };
 }
 
-function rateLimited(): HttpResponseInit {
+function rateLimited(requestId?: string): HttpResponseInit {
   return {
     status: 429,
     jsonBody: {
       error: "rate_limited",
-      retry_after_seconds: 60
+      retry_after_seconds: 60,
+      ...(requestId ? { request_id: requestId } : {})
     }
   };
 }
 
-function temporarilyDisabled(message: string): HttpResponseInit {
+function temporarilyDisabled(message: string, requestId?: string): HttpResponseInit {
   return {
     status: 503,
     jsonBody: {
       error: "temporarily_disabled",
-      message
+      message,
+      ...(requestId ? { request_id: requestId } : {})
     }
   };
 }
@@ -148,6 +151,10 @@ function isYesNoNotSure(value: unknown): value is YesNoNotSure {
 
 function isSuggestionCategory(value: unknown): value is SuggestionCategory {
   return isNonEmptyString(value) && SUGGESTION_CATEGORIES.includes(value as SuggestionCategory);
+}
+
+function isDebugMode(request: HttpRequest): boolean {
+  return process.env.NODE_ENV !== "production" || getHeader(request, "x-debug") === "1";
 }
 
 function isEstimateCalciumRequest(value: unknown): value is EstimateCalciumRequest {
@@ -242,12 +249,25 @@ app.http("estimateCalcium", {
     const deviceInstallId = getHeader(request, "x-device-install-id");
     const requestId = getHeader(request, "x-request-id");
     const appVersion = getHeader(request, "x-app-version");
-    const debugHeader = getHeader(request, "x-debug");
-    const includeDebug = process.env.NODE_ENV !== "production" || debugHeader === "1";
+    const debugMode = isDebugMode(request);
+    const configSnapshot = {
+      has_openai_key: Boolean(process.env.OPENAI_API_KEY),
+      openai_model: process.env.OPENAI_MODEL ?? null,
+      use_mock_estimate: process.env.USE_MOCK_ESTIMATE === "true",
+      estimation_enabled: ESTIMATION_ENABLED,
+      lockout_active: LOCKOUT_ACTIVE,
+      rate_limit_enabled: RATE_LIMIT_ENABLED,
+      circuit_breaker_enabled: CIRCUIT_BREAKER_ENABLED
+    };
 
     if (!isNonEmptyString(deviceInstallId) || !isNonEmptyString(requestId) || !isNonEmptyString(appVersion)) {
-      return invalidRequest("Missing required headers.");
+      return invalidRequest("Missing required headers.", requestId);
     }
+
+    logEvent(context, "estimate_config", {
+      request_id: requestId,
+      ...configSnapshot
+    });
 
     logEvent(context, "estimate_request_received", {
       request_id: requestId,
@@ -258,20 +278,20 @@ app.http("estimateCalcium", {
     });
 
     if (CIRCUIT_BREAKER_ENABLED && !ESTIMATION_ENABLED) {
-      return temporarilyDisabled("Estimation temporarily unavailable.");
+      return temporarilyDisabled("Estimation temporarily unavailable.", requestId);
     }
 
     if (LOCKOUT_ACTIVE) {
-      return temporarilyDisabled("Estimation temporarily unavailable.");
+      return temporarilyDisabled("Estimation temporarily unavailable.", requestId);
     }
 
     if (RATE_LIMIT_ENABLED && isRateLimited()) {
-      return rateLimited();
+      return rateLimited(requestId);
     }
 
     const body = await parseJson<EstimateCalciumRequest>(request);
     if (!body || !isEstimateCalciumRequest(body)) {
-      return invalidRequest("Invalid JSON body.");
+      return invalidRequest("Invalid JSON body.", requestId);
     }
 
     const config = getConfig();
@@ -284,13 +304,21 @@ app.http("estimateCalcium", {
       model: config.model
     });
 
-    if (!config.useMock && !config.apiKeyPresent) {
-      return errorResponse(
-        500,
-        "server_not_configured",
-        "Estimator is not configured. Please contact support.",
-        requestId
-      );
+    if (!configSnapshot.use_mock_estimate && !configSnapshot.has_openai_key) {
+      logEvent(context, "estimate_blocked_not_configured", {
+        request_id: requestId,
+        ...configSnapshot
+      });
+      return {
+        status: 500,
+        jsonBody: {
+          error: "server_not_configured",
+          message:
+            "Estimator is not configured. Set OPENAI_API_KEY (and optionally OPENAI_MODEL) or enable USE_MOCK_ESTIMATE=true.",
+          request_id: requestId,
+          ...(debugMode ? { debug: configSnapshot } : {})
+        }
+      };
     }
 
     try {
@@ -308,7 +336,7 @@ app.http("estimateCalcium", {
         jsonBody: {
           ...result,
           follow_up_question: null,
-          debug: includeDebug
+          debug: debugMode
             ? {
                 model: config.model,
                 prompt_version: PROMPT_VERSION,
