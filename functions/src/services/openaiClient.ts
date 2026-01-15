@@ -109,7 +109,7 @@ export async function estimateFromImageAndAnswers({
               { type: "input_text", text: prompt },
               { type: "input_text", text: `Locale: ${locale}. Request ID: ${requestId}.` },
               { type: "input_text", text: `Answers: portion=${answers.portion_size}, dairy=${answers.contains_dairy}, tofu_or_small_fish_bones=${answers.contains_tofu_or_small_fish_bones}.` },
-              { type: "input_image", image_url: `data:image/jpeg;base64,${imageBase64}` }
+              { type: "input_image", image_url: `data:image/jpeg;base64,${imageBase64}`, detail: "auto" }
             ]
           }
         ],
