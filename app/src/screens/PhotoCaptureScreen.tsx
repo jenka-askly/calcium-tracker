@@ -112,7 +112,6 @@ export function PhotoCaptureScreen({ navigation }: Props) {
           onPress={async () => {
             log("photo_capture", "capture:panic_handler_enter", {});
             log("photo_capture", "capture:handler_enter", {});
-            Alert.alert("DEBUG", "capture handler enter");
             // DEBUG TOUCH
             log("photo_capture", "capture:press", {});
             // DEBUG TOUCH
