@@ -1,7 +1,7 @@
 // Purpose: Provide a photo review screen with preview rendering and navigation actions.
 // Persists: No persistence; reads preview data from in-memory context.
 // Security Risks: Renders local or remote image URIs for preview.
-import React, { useCallback, useEffect } from "react";
+import React, { useCallback } from "react";
 import { Image, StyleSheet, Text, View } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { v4 as uuidv4 } from "uuid";
@@ -18,20 +18,12 @@ type Props = NativeStackScreenProps<RootStackParamList, "PhotoReview">;
 export function PhotoReviewScreen({ navigation }: Props) {
   const { strings } = useAppContext();
   const { photo, setPhoto } = usePhotoCaptureContext();
+  const uri = photo?.uri ?? null;
+  log("photo_review", "render", { uri, hasUri: !!uri });
   const handleUsePhoto = useCallback(() => {
     log("photo_review", "use_photo", { action: "navigate_questions" });
     navigation.push("Questions");
   }, [navigation]);
-
-  useEffect(() => {
-    // DEBUG PHOTO PIPELINE
-    log("photo_review", "render", {
-      capture_id: photo?.captureId ?? null,
-      uri: photo?.uri ?? null,
-      source: photo?.source ?? null
-    });
-    // DEBUG PHOTO PIPELINE
-  }, [photo?.captureId, photo?.source, photo?.uri]);
 
   const handleDebugPreview = useCallback(() => {
     const captureId = uuidv4();
@@ -50,9 +42,9 @@ export function PhotoReviewScreen({ navigation }: Props) {
     <View style={styles.container}>
       <Text style={styles.title}>{translate(strings, "photo_review_title")}</Text>
       <View style={styles.previewFrame}>
-        {photo?.uri ? (
+        {uri ? (
           <Image
-            source={{ uri: photo.uri }}
+            source={{ uri }}
             style={styles.previewImage}
             resizeMode="cover"
             onLoad={(event) => {
@@ -117,7 +109,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#e2e8f0"
   },
   previewImage: {
-    flex: 1
+    width: "100%",
+    height: "100%"
   },
   placeholder: {
     flex: 1,
