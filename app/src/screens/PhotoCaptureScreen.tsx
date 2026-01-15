@@ -45,6 +45,9 @@ export function PhotoCaptureScreen({ navigation }: Props) {
 
   const handleCapture = useCallback(async () => {
     const captureId = uuidv4();
+    // DEBUG CAPTURE PIPELINE
+    log("photo_capture", "capture:handler_enter", { capture_id: captureId });
+    // DEBUG CAPTURE PIPELINE
     // DEBUG CAPTURE
     log("camera", "capture:press", { captureId });
     Alert.alert("Capture pressed", captureId);
@@ -58,12 +61,29 @@ export function PhotoCaptureScreen({ navigation }: Props) {
       appState
     });
     // DEBUG CAPTURE
+    // DEBUG CAPTURE PIPELINE
+    log("photo_capture", "capture:prechecks", {
+      capture_id: captureId,
+      permission_status: permission?.status ?? "unknown",
+      hasPermission: permission?.granted ?? false,
+      isCameraReady: isReady,
+      cameraRefPresent: !!cameraRef.current,
+      isCapturing,
+      captureDisabled
+    });
+    // DEBUG CAPTURE PIPELINE
 
     if (isCapturing) {
       log("camera", "capture:blocked", {
         captureId,
         reason: "capture_in_progress"
       });
+      // DEBUG CAPTURE PIPELINE
+      log("photo_capture", "capture:error", {
+        capture_id: captureId,
+        message: "capture_in_progress"
+      });
+      // DEBUG CAPTURE PIPELINE
       return;
     }
 
@@ -105,6 +125,12 @@ export function PhotoCaptureScreen({ navigation }: Props) {
           reason: "permission_missing"
         });
         // DEBUG CAPTURE
+        // DEBUG CAPTURE PIPELINE
+        log("photo_capture", "capture:error", {
+          capture_id: captureId,
+          message: "permission_missing"
+        });
+        // DEBUG CAPTURE PIPELINE
         // DEBUG PHOTO PIPELINE
         log("photo_capture", "capture_blocked", {
           capture_id: captureId,
@@ -122,6 +148,12 @@ export function PhotoCaptureScreen({ navigation }: Props) {
           reason: "camera_ref_missing"
         });
         // DEBUG CAPTURE
+        // DEBUG CAPTURE PIPELINE
+        log("photo_capture", "capture:error", {
+          capture_id: captureId,
+          message: "camera_ref_missing"
+        });
+        // DEBUG CAPTURE PIPELINE
         // DEBUG PHOTO PIPELINE
         log("photo_capture", "capture_error", {
           capture_id: captureId,
@@ -139,27 +171,39 @@ export function PhotoCaptureScreen({ navigation }: Props) {
           reason: "camera_not_ready"
         });
         // DEBUG CAPTURE
+        // DEBUG CAPTURE PIPELINE
+        log("photo_capture", "capture:error", {
+          capture_id: captureId,
+          message: "camera_not_ready"
+        });
+        // DEBUG CAPTURE PIPELINE
         return;
       }
 
       let watchdogFired = false;
+      let watchdogSettled = false;
       const watchdogId = setTimeout(() => {
+        if (watchdogSettled) {
+          return;
+        }
         watchdogFired = true;
-        // DEBUG CAPTURE
-        log("camera", "capture:hang", { captureId });
-        Alert.alert("Capture appears hung");
-        // DEBUG CAPTURE
-      }, 3000);
+        // DEBUG CAPTURE PIPELINE
+        log("photo_capture", "capture:hang", { capture_id: captureId });
+        Alert.alert("Capture appears stuck");
+        // DEBUG CAPTURE PIPELINE
+      }, 5000);
 
       try {
         // DEBUG CAPTURE
         log("camera", "capture:start", { captureId });
         // DEBUG CAPTURE
+        // DEBUG CAPTURE PIPELINE
+        log("photo_capture", "capture:takePicture_start", { capture_id: captureId });
+        // DEBUG CAPTURE PIPELINE
         const result = await cameraRef.current.takePictureAsync({ quality: 0.8 });
 
-        if (!watchdogFired) {
-          clearTimeout(watchdogId);
-        }
+        watchdogSettled = true;
+        clearTimeout(watchdogId);
 
         // DEBUG CAPTURE
         log("camera", "capture:success", {
@@ -169,6 +213,14 @@ export function PhotoCaptureScreen({ navigation }: Props) {
           height: result.height
         });
         // DEBUG CAPTURE
+        // DEBUG CAPTURE PIPELINE
+        log("photo_capture", "capture:takePicture_success", {
+          capture_id: captureId,
+          uri: result.uri,
+          width: result.width,
+          height: result.height
+        });
+        // DEBUG CAPTURE PIPELINE
 
         // DEBUG PHOTO PIPELINE
         log("photo_capture", "capture_result", {
@@ -181,14 +233,13 @@ export function PhotoCaptureScreen({ navigation }: Props) {
 
         const info = await FileSystem.getInfoAsync(result.uri);
 
-        // DEBUG PHOTO PIPELINE
-        log("photo_capture", "file_info", {
+        // DEBUG CAPTURE PIPELINE
+        log("photo_capture", "capture:file_info", {
           capture_id: captureId,
-          uri: result.uri,
           exists: info.exists,
           size: info.size ?? null
         });
-        // DEBUG PHOTO PIPELINE
+        // DEBUG CAPTURE PIPELINE
 
         const nextPhoto = {
           uri: result.uri,
@@ -198,33 +249,44 @@ export function PhotoCaptureScreen({ navigation }: Props) {
           source: "camera" as const
         };
 
-        // DEBUG PHOTO PIPELINE
-        log("photo_capture", "state_store", {
+        // DEBUG CAPTURE PIPELINE
+        log("photo_capture", "capture:set_state", {
           capture_id: captureId,
           uri: nextPhoto.uri,
           width: nextPhoto.width,
           height: nextPhoto.height,
           source: nextPhoto.source
         });
-        // DEBUG PHOTO PIPELINE
+        // DEBUG CAPTURE PIPELINE
 
         setPhoto(nextPhoto);
+        // DEBUG CAPTURE PIPELINE
+        log("photo_capture", "capture:navigate_review", { capture_id: captureId });
+        // DEBUG CAPTURE PIPELINE
         navigation.navigate("PhotoReview");
       } catch (error) {
-        if (!watchdogFired) {
-          clearTimeout(watchdogId);
-        }
+        watchdogSettled = true;
+        clearTimeout(watchdogId);
         const message = error instanceof Error ? error.message : String(error);
+        const stack = error instanceof Error ? error.stack ?? null : null;
         // DEBUG CAPTURE
         log("camera", "capture:error", { captureId, message });
         Alert.alert("Capture failed", message);
         // DEBUG CAPTURE
+        // DEBUG CAPTURE PIPELINE
+        log("photo_capture", "capture:error", { capture_id: captureId, message, stack });
+        // DEBUG CAPTURE PIPELINE
         // DEBUG PHOTO PIPELINE
         log("photo_capture", "capture_error", { capture_id: captureId, message });
         // DEBUG PHOTO PIPELINE
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? error.stack ?? null : null;
+      // DEBUG CAPTURE PIPELINE
+      log("photo_capture", "capture:error", { capture_id: captureId, message, stack });
+      Alert.alert("Capture failed", message);
+      // DEBUG CAPTURE PIPELINE
       // DEBUG PHOTO PIPELINE
       log("photo_capture", "capture_error", { capture_id: captureId, message });
       // DEBUG PHOTO PIPELINE
