@@ -456,52 +456,54 @@ export function QuestionsScreen({ navigation, route }: Props) {
         <View style={styles.panel}>
           <Text style={styles.title}>{translate(strings, "questions_title")}</Text>
 
-          {loading && <LoadingPanel label="Preparing questions…" />}
+          <View style={styles.body}>
+            {loading && <LoadingPanel label="Preparing questions…" />}
 
-          {!loading && questionsCount === 0 && (
-            <EmptyState
-              title="No questions generated"
-              message="We couldn’t generate follow-up questions for this photo."
-              actions={[
-                { label: "Continue", onPress: handleContinueWithoutQuestions },
-                { label: "Retake Photo", onPress: goBack }
-              ]}
-            />
-          )}
+            {!loading && questionsCount === 0 && (
+              <EmptyState
+                title="No questions generated"
+                message="We couldn’t generate follow-up questions for this photo."
+                actions={[
+                  { label: "Continue", onPress: handleContinueWithoutQuestions },
+                  { label: "Retake Photo", onPress: goBack }
+                ]}
+              />
+            )}
 
-          {questions.length > 0 && (
-            <ScrollView
-              style={styles.scroll}
-              contentContainerStyle={styles.scrollContent}
-              keyboardShouldPersistTaps="handled"
-              onScrollBeginDrag={handleScrollBeginDrag}
-            >
-              {questions.map((question) => {
-                const answerState = getAnswerState(question.id);
-                return (
-                  <View key={question.id} style={styles.questionBlock}>
-                    <Text style={styles.questionLabel}>
-                      {translate(strings, question.labelKey)}
-                    </Text>
-                    <View style={styles.optionRow}>
-                      {question.options.map((option) => (
-                        <PrimaryButton
-                          key={option.id}
-                          label={translate(strings, option.labelKey)}
-                          onPress={() => answerState.onChange(option.id)}
-                          style={
-                            answerState.value === option.id
-                              ? styles.optionSelected
-                              : styles.optionButton
-                          }
-                        />
-                      ))}
+            {questions.length > 0 && (
+              <ScrollView
+                style={styles.scroll}
+                contentContainerStyle={styles.scrollContent}
+                keyboardShouldPersistTaps="handled"
+                onScrollBeginDrag={handleScrollBeginDrag}
+              >
+                {questions.map((question) => {
+                  const answerState = getAnswerState(question.id);
+                  return (
+                    <View key={question.id} style={styles.questionBlock}>
+                      <Text style={styles.questionLabel}>
+                        {translate(strings, question.labelKey)}
+                      </Text>
+                      <View style={styles.optionRow}>
+                        {question.options.map((option) => (
+                          <PrimaryButton
+                            key={option.id}
+                            label={translate(strings, option.labelKey)}
+                            onPress={() => answerState.onChange(option.id)}
+                            style={
+                              answerState.value === option.id
+                                ? styles.optionSelected
+                                : styles.optionButton
+                            }
+                          />
+                        ))}
+                      </View>
                     </View>
-                  </View>
-                );
-              })}
-            </ScrollView>
-          )}
+                  );
+                })}
+              </ScrollView>
+            )}
+          </View>
 
           <View style={styles.footer}>
             <PrimaryButton
@@ -538,10 +540,10 @@ const styles = StyleSheet.create({
   panel: {
     width: "90%",
     maxHeight: "85%",
+    flex: 1,
     backgroundColor: "#fff",
     borderRadius: 20,
     padding: 20,
-    flexShrink: 1,
     shadowColor: "#000",
     shadowOpacity: 0.1,
     shadowRadius: 8,
@@ -553,10 +555,14 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginBottom: 12
   },
+  body: {
+    flex: 1
+  },
   scroll: {
     flex: 1
   },
   scrollContent: {
+    flexGrow: 1,
     paddingBottom: 24
   },
   questionBlock: {
@@ -600,6 +606,7 @@ const styles = StyleSheet.create({
   footer: {
     flexDirection: "row",
     gap: 12,
+    marginTop: "auto",
     paddingTop: 8,
     paddingBottom: 12
   },
