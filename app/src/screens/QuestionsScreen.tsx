@@ -1,4 +1,4 @@
-// Purpose: Collect the three required estimation questions with large-button options.
+// Purpose: Collect the three required estimation questions with large-button options and verify backend readiness.
 // Persists: No persistence.
 // Security Risks: None.
 import React, { useCallback, useState } from "react";
@@ -11,6 +11,7 @@ import { useAppContext } from "../context/AppContext";
 import { usePhotoCaptureContext } from "../context/PhotoCaptureContext";
 import {
   estimateCalcium,
+  getStatus,
   type ApiClientError,
   isApiClientError,
   type PortionSize,
@@ -82,6 +83,35 @@ export function QuestionsScreen({ navigation }: Props) {
 
     setIsSubmitting(true);
     try {
+      log("photo_flow", "status_check_start", {
+        capture_id: photo.captureId,
+        source: photo.source
+      });
+      try {
+        await getStatus();
+        log("photo_flow", "status_check_ok", {
+          capture_id: photo.captureId,
+          source: photo.source
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (isApiClientError(error)) {
+          logError("photo_flow", "status_check_error", {
+            kind: error.kind,
+            url: error.url,
+            status: error.status ?? null,
+            message: error.messageDev,
+            trace_id: error.traceId
+          });
+        } else {
+          logError("photo_flow", "status_check_error_unknown", { message });
+        }
+        Alert.alert(
+          "Can’t reach server. Make sure the backend is running and connected to the same Wi-Fi."
+        );
+        return;
+      }
+
       const imageBase64 = await FileSystem.readAsStringAsync(photo.uri, {
         encoding: FileSystem.EncodingType.Base64
       });
@@ -111,6 +141,10 @@ export function QuestionsScreen({ navigation }: Props) {
       log("photo_flow", "estimate_start", {
         capture_id: photo.captureId,
         source: photo.source
+      });
+      log("photo_flow", "capture:api_call_start", {
+        capture_id: photo.captureId,
+        endpoint: "/api/estimateCalcium"
       });
       await estimateCalcium(deviceInstallId, request);
       navigation.navigate("Result");
