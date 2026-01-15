@@ -43,7 +43,13 @@ function getOutputText(response: OpenAI.Responses.Response): string | null {
 
   const output = response.output ?? [];
   for (const item of output) {
-    for (const content of item.content ?? []) {
+    if (!("content" in item)) {
+      continue;
+    }
+
+    const contentItems =
+      (item as { content?: Array<{ type?: string; text?: string }> }).content ?? [];
+    for (const content of contentItems) {
       if (content.type === "output_text" && typeof content.text === "string") {
         return content.text;
       }
@@ -99,9 +105,7 @@ export async function estimateFromImageAndAnswers({
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const responseParams: OpenAI.Responses.ResponseCreateParamsBase & {
-      response_format: { type: "json_schema"; json_schema: typeof RESPONSE_SCHEMA };
-    } = {
+    const responseParams: OpenAI.Responses.ResponseCreateParams = {
       model,
       input: [
         {
