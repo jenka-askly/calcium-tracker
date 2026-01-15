@@ -18,7 +18,7 @@ export type RootStackParamList = {
   Home: undefined;
   PhotoCapture: undefined;
   PhotoReview: undefined;
-  Questions: { questions?: QuestionDefinition[] } | undefined;
+  Questions: { captureId: string; photoUri: string; questions?: QuestionDefinition[] };
   Result: undefined;
   Today: undefined;
   Report: undefined;

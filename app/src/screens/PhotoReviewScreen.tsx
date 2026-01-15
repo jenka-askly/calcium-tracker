@@ -11,7 +11,7 @@ import { useAppContext } from "../context/AppContext";
 import { usePhotoCaptureContext } from "../context/PhotoCaptureContext";
 import { translate } from "../services/i18n";
 import type { RootStackParamList } from "../navigation/RootNavigator";
-import { log } from "../utils/logger";
+import { error as logError, log } from "../utils/logger";
 
 type Props = NativeStackScreenProps<RootStackParamList, "PhotoReview">;
 
@@ -19,11 +19,22 @@ export function PhotoReviewScreen({ navigation }: Props) {
   const { strings } = useAppContext();
   const { photo, setPhoto } = usePhotoCaptureContext();
   const uri = photo?.uri ?? null;
+  const captureId = photo?.captureId ?? null;
   log("photo_review", "render", { uri, hasUri: !!uri });
   const handleUsePhoto = useCallback(() => {
+    if (!captureId || !uri) {
+      logError("photo_review", "navigate_blocked_missing_data", {
+        captureId,
+        photoUri: uri
+      });
+      return;
+    }
     log("photo_review", "use_photo", { action: "navigate_questions" });
-    navigation.push("Questions");
-  }, [navigation]);
+    navigation.navigate("Questions", {
+      captureId,
+      photoUri: uri
+    });
+  }, [captureId, navigation, uri]);
 
   const handleDebugPreview = useCallback(() => {
     const captureId = uuidv4();

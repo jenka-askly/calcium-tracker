@@ -4,6 +4,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
@@ -32,6 +33,64 @@ import type { QuestionDefinition } from "../types/questions";
 import { error as logError, log } from "../utils/logger";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Questions">;
+
+type PanelAction = {
+  label: string;
+  onPress: () => void;
+};
+
+type ErrorPanelProps = {
+  title: string;
+  message: string;
+  primaryAction: PanelAction;
+};
+
+type EmptyStateProps = {
+  title: string;
+  message: string;
+  actions: PanelAction[];
+};
+
+type LoadingPanelProps = {
+  label: string;
+};
+
+function ErrorPanel({ title, message, primaryAction }: ErrorPanelProps) {
+  return (
+    <View style={styles.statePanel}>
+      <Text style={styles.stateTitle}>{title}</Text>
+      <Text style={styles.stateMessage}>{message}</Text>
+      <PrimaryButton label={primaryAction.label} onPress={primaryAction.onPress} />
+    </View>
+  );
+}
+
+function EmptyState({ title, message, actions }: EmptyStateProps) {
+  return (
+    <View style={styles.statePanel}>
+      <Text style={styles.stateTitle}>{title}</Text>
+      <Text style={styles.stateMessage}>{message}</Text>
+      <View style={styles.stateActions}>
+        {actions.map((action) => (
+          <PrimaryButton
+            key={action.label}
+            label={action.label}
+            onPress={action.onPress}
+          />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function LoadingPanel({ label }: LoadingPanelProps) {
+  return (
+    <View style={styles.statePanel}>
+      <ActivityIndicator size="large" color="#4a5568" />
+      <Text style={styles.stateMessage}>{label}</Text>
+    </View>
+  );
+}
 
 const DEFAULT_QUESTIONS: QuestionDefinition[] = [
   {
@@ -75,10 +134,16 @@ export function QuestionsScreen({ navigation, route }: Props) {
   const [error, setError] = useState<string | null>(null);
   const hasLoggedScroll = useRef(false);
   const lastRenderLog = useRef<string | null>(null);
-  const photoUri = photo?.uri ?? null;
-  const captureId = photo?.captureId ?? null;
+  const hasLoggedMissingContext = useRef(false);
+  const routePhotoUri = route.params?.photoUri ?? null;
+  const routeCaptureId = route.params?.captureId ?? null;
+  const photoUri = routePhotoUri ?? photo?.uri ?? null;
+  const captureId = routeCaptureId ?? photo?.captureId ?? null;
 
   const questionsCount = useMemo(() => questions?.length ?? 0, [questions]);
+  const allRequiredAnswered = useMemo(() => {
+    return Boolean(portionSize && containsDairy && containsTofu);
+  }, [containsDairy, containsTofu, portionSize]);
   const disabledReasons = useMemo(() => {
     const reasons: string[] = [];
     if (loading) reasons.push("loading");
@@ -90,27 +155,39 @@ export function QuestionsScreen({ navigation, route }: Props) {
   }, [captureId, error, loading, photoUri, questionsCount]);
 
   const canProceed = useMemo(() => {
-    if (!loading && questionsCount === 0) {
-      return true;
-    }
-    return Boolean(portionSize && containsDairy && containsTofu);
-  }, [containsDairy, containsTofu, loading, portionSize, questionsCount]);
+    return questionsCount === 0 || allRequiredAnswered;
+  }, [allRequiredAnswered, questionsCount]);
 
   const loadQuestions = useCallback(() => {
     setLoading(true);
     setError(null);
     const routeQuestions = route.params?.questions;
+    const flags = {
+      routeQuestionCount: routeQuestions?.length ?? 0,
+      usedDefaultQuestions: !routeQuestions || routeQuestions.length === 0
+    };
     log("questions", "route_params_questions", {
       count: routeQuestions?.length ?? 0
     });
+    const nextQuestions =
+      routeQuestions && routeQuestions.length > 0 ? routeQuestions : DEFAULT_QUESTIONS;
     if (!routeQuestions || routeQuestions.length === 0) {
       setError("missing_questions_params");
-      setQuestions((prev) => (DEFAULT_QUESTIONS.length ? DEFAULT_QUESTIONS : prev));
+      setQuestions((prev) => (nextQuestions.length ? nextQuestions : prev));
     } else {
-      setQuestions((prev) => (routeQuestions.length ? routeQuestions : prev));
+      setQuestions((prev) => (nextQuestions.length ? nextQuestions : prev));
     }
+    log("questions", "build_result", {
+      input: {
+        captureId,
+        photoUriPresent: !!photoUri,
+        flags
+      },
+      resultCount: nextQuestions.length,
+      questionIds: nextQuestions.map((question) => question.id)
+    });
     setLoading(false);
-  }, [route.params?.questions]);
+  }, [captureId, photoUri, route.params?.questions]);
 
   useEffect(() => {
     loadQuestions();
@@ -197,14 +274,14 @@ export function QuestionsScreen({ navigation, route }: Props) {
     setIsSubmitting(true);
     try {
       log("photo_flow", "status_check_start", {
-        capture_id: photo.captureId,
-        source: photo.source
+        capture_id: captureId,
+        source: photo?.source ?? null
       });
       try {
         await getStatus();
         log("photo_flow", "status_check_ok", {
-          capture_id: photo.captureId,
-          source: photo.source
+          capture_id: captureId,
+          source: photo?.source ?? null
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -225,7 +302,7 @@ export function QuestionsScreen({ navigation, route }: Props) {
         return;
       }
 
-      const imageBase64 = await FileSystem.readAsStringAsync(photo.uri, {
+      const imageBase64 = await FileSystem.readAsStringAsync(photoUri, {
         encoding: FileSystem.EncodingType.Base64
       });
       const portionMap: Record<string, PortionSize> = {
@@ -252,11 +329,11 @@ export function QuestionsScreen({ navigation, route }: Props) {
       };
 
       log("photo_flow", "estimate_start", {
-        capture_id: photo.captureId,
-        source: photo.source
+        capture_id: captureId,
+        source: photo?.source ?? null
       });
       log("photo_flow", "capture:api_call_start", {
-        capture_id: photo.captureId,
+        capture_id: captureId,
         endpoint: "/api/estimateCalcium"
       });
       await estimateCalcium(deviceInstallId, request);
@@ -299,6 +376,7 @@ export function QuestionsScreen({ navigation, route }: Props) {
     }
   }, [
     canProceed,
+    captureId,
     containsDairy,
     containsTofu,
     deviceInstallId,
@@ -319,11 +397,6 @@ export function QuestionsScreen({ navigation, route }: Props) {
     hasLoggedScroll.current = true;
     log("questions", "scroll", { question_count: questionsCount });
   }, [questionsCount]);
-
-  const handleRetry = useCallback(() => {
-    log("questions", "retry_pressed", { disabled_reasons: disabledReasons });
-    loadQuestions();
-  }, [disabledReasons, loadQuestions]);
 
   const handleContinueWithoutQuestions = useCallback(() => {
     log("questions", "continue_without_questions_pressed", {
@@ -348,6 +421,32 @@ export function QuestionsScreen({ navigation, route }: Props) {
     [containsDairy, containsTofu, portionSize]
   );
 
+  const goBack = useCallback(() => {
+    navigation.goBack();
+  }, [navigation]);
+
+  if (!captureId || !photoUri) {
+    if (!hasLoggedMissingContext.current) {
+      hasLoggedMissingContext.current = true;
+      logError("questions", "missing_required_context", {
+        captureId,
+        photoUri,
+        routeParams: route.params
+      });
+    }
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.panel}>
+          <ErrorPanel
+            title="Unable to load questions"
+            message="The photo data was not available. Please retake the photo."
+            primaryAction={{ label: "Retake Photo", onPress: goBack }}
+          />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
@@ -357,20 +456,20 @@ export function QuestionsScreen({ navigation, route }: Props) {
         <View style={styles.panel}>
           <Text style={styles.title}>{translate(strings, "questions_title")}</Text>
 
-          {!loading && questionsCount === 0 ? (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyTitle}>No questions loaded</Text>
-              <Text style={styles.emptySubtitle}>{disabledReasons.join(", ")}</Text>
-              <View style={styles.emptyButtons}>
-                <PrimaryButton label="Retry" onPress={handleRetry} />
-                <PrimaryButton
-                  label="Continue"
-                  onPress={handleContinueWithoutQuestions}
-                  style={styles.secondaryButton}
-                />
-              </View>
-            </View>
-          ) : (
+          {loading && <LoadingPanel label="Preparing questions…" />}
+
+          {!loading && questionsCount === 0 && (
+            <EmptyState
+              title="No questions generated"
+              message="We couldn’t generate follow-up questions for this photo."
+              actions={[
+                { label: "Continue", onPress: handleContinueWithoutQuestions },
+                { label: "Retake Photo", onPress: goBack }
+              ]}
+            />
+          )}
+
+          {questions.length > 0 && (
             <ScrollView
               style={styles.scroll}
               contentContainerStyle={styles.scrollContent}
@@ -476,29 +575,27 @@ const styles = StyleSheet.create({
   optionSelected: {
     backgroundColor: "#38a169"
   },
-  emptyState: {
+  statePanel: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     paddingVertical: 24
   },
-  emptyTitle: {
+  stateTitle: {
     fontSize: 20,
     fontWeight: "600",
-    marginBottom: 8
+    marginBottom: 8,
+    textAlign: "center"
   },
-  emptySubtitle: {
+  stateMessage: {
     fontSize: 14,
     color: "#4a5568",
     textAlign: "center",
     marginBottom: 16
   },
-  emptyButtons: {
+  stateActions: {
     width: "100%",
     gap: 12
-  },
-  secondaryButton: {
-    backgroundColor: "#4a5568"
   },
   footer: {
     flexDirection: "row",
