@@ -1,12 +1,12 @@
-// Purpose: Define Azure Functions HTTP endpoints matching the API contract schemas with safe config logging.
+// Purpose: Define Azure Functions HTTP endpoints matching the API contract schemas with safe config logging and diagnostics.
 // Persists: No persistence.
-// Security Risks: Handles request IDs, device identifiers, and OpenAI API calls; avoid logging raw values.
+// Security Risks: Handles request IDs, device identifiers, admin keys, and OpenAI API calls; avoid logging raw values.
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import crypto from "crypto";
 
+import { buildEnvReport, getDerivedConfig } from "./env";
 import { EstimateError, isEstimateError } from "./services/errors";
 import {
-  PROMPT_VERSION,
   estimateCalcium,
   getConfig
 } from "./services/estimateCalciumService";
@@ -48,21 +48,21 @@ type LocalizationRegenerateRequest = {
   locales: Locale[];
 };
 
-const ESTIMATION_ENABLED = process.env.ESTIMATION_ENABLED !== "false";
-const LOCKOUT_ACTIVE = process.env.LOCKOUT_ACTIVE === "true";
-const RATE_LIMIT_ENABLED = process.env.RATE_LIMIT_ENABLED !== "false";
-const CIRCUIT_BREAKER_ENABLED = process.env.CIRCUIT_BREAKER_ENABLED !== "false";
-const ADMIN_KEY = process.env.ADMIN_KEY ?? "changeme";
-const DEVICE_HASH_SALT = process.env.DEVICE_HASH_SALT ?? "local-dev-salt";
-const LOCALIZATION_PACK_URL_BASE = process.env.LOCALIZATION_PACK_URL_BASE ?? "http://localhost:7071/locales";
-
 const SUPPORTED_LOCALES: Locale[] = ["en", "zh-Hans", "es"];
 const PORTION_SIZES: PortionSize[] = ["small", "medium", "large"];
 const YES_NO_NOT_SURE_VALUES: YesNoNotSure[] = ["yes", "no", "not_sure"];
 const SUGGESTION_CATEGORIES: SuggestionCategory[] = ["bug", "feature", "confusing"];
 
-function hashDeviceInstallId(deviceInstallId: string): string {
-  return crypto.createHash("sha256").update(`${DEVICE_HASH_SALT}:${deviceInstallId}`).digest("hex");
+const startupEnvReport = buildEnvReport(getDerivedConfig());
+console.log({
+  event: "env_snapshot_startup",
+  timestamp_utc: new Date().toISOString(),
+  snapshot: startupEnvReport.snapshot,
+  missing_required: startupEnvReport.missing_required
+});
+
+function hashDeviceInstallId(deviceInstallId: string, salt: string): string {
+  return crypto.createHash("sha256").update(`${salt}:${deviceInstallId}`).digest("hex");
 }
 
 function logEvent(context: InvocationContext, event: string, payload: Record<string, unknown>) {
@@ -157,6 +157,13 @@ function isDebugMode(request: HttpRequest): boolean {
   return process.env.NODE_ENV !== "production" || getHeader(request, "x-debug") === "1";
 }
 
+function logEnvSnapshot(context: InvocationContext, snapshot: Record<string, unknown>, requestId?: string) {
+  logEvent(context, "env_snapshot", {
+    ...(requestId ? { request_id: requestId } : {}),
+    snapshot
+  });
+}
+
 function isEstimateCalciumRequest(value: unknown): value is EstimateCalciumRequest {
   if (!value || typeof value !== "object") {
     return false;
@@ -225,19 +232,69 @@ app.http("status", {
   methods: ["GET"],
   route: "status",
   handler: async (_request, context) => {
+    const derivedConfig = getDerivedConfig();
+    const envReport = buildEnvReport(derivedConfig);
+    logEnvSnapshot(context, envReport.snapshot);
     logEvent(context, "status_check", {
-      estimation_enabled: ESTIMATION_ENABLED,
-      lockout_active: LOCKOUT_ACTIVE,
-      rate_limit_enabled: RATE_LIMIT_ENABLED,
-      circuit_breaker_enabled: CIRCUIT_BREAKER_ENABLED
+      estimation_enabled: derivedConfig.estimationEnabled,
+      lockout_active: derivedConfig.lockoutActive,
+      rate_limit_enabled: derivedConfig.rateLimitEnabled,
+      circuit_breaker_enabled: derivedConfig.circuitBreakerEnabled
     });
     return {
       status: 200,
       jsonBody: {
-        estimation_enabled: ESTIMATION_ENABLED && !LOCKOUT_ACTIVE,
-        lockout_active: LOCKOUT_ACTIVE,
-        message: ESTIMATION_ENABLED && !LOCKOUT_ACTIVE ? "OK" : "Estimation temporarily unavailable."
+        estimation_enabled: derivedConfig.estimationEnabled && !derivedConfig.lockoutActive,
+        lockout_active: derivedConfig.lockoutActive,
+        message: derivedConfig.estimationEnabled && !derivedConfig.lockoutActive ? "OK" : "Estimation temporarily unavailable."
       }
+    };
+  }
+});
+
+app.http("diagnosticsEnv", {
+  methods: ["GET"],
+  route: "diagnostics/env",
+  handler: async (request, context) => {
+    const derivedConfig = getDerivedConfig();
+    const envReport = buildEnvReport(derivedConfig);
+    const requestId = getHeader(request, "x-request-id");
+    const adminKey = getHeader(request, "x-admin-key");
+    const isAdmin = adminKey === derivedConfig.adminKey;
+
+    logEnvSnapshot(context, envReport.snapshot, requestId);
+
+    const minimalRequired = envReport.required.map((item) => ({ name: item.name, present: item.present }));
+    const minimalOptional = envReport.optional.map((item) => ({ name: item.name, present: item.present }));
+    const responseBody: Record<string, unknown> = {
+      required: minimalRequired,
+      optional: minimalOptional,
+      missing_required: envReport.missing_required,
+      derived: {
+        estimation_enabled: derivedConfig.estimationEnabled,
+        lockout_active: derivedConfig.lockoutActive,
+        rate_limit_enabled: derivedConfig.rateLimitEnabled,
+        circuit_breaker_enabled: derivedConfig.circuitBreakerEnabled,
+        estimation_available: derivedConfig.estimationEnabled && !derivedConfig.lockoutActive,
+        use_mock_estimate: derivedConfig.useMockEstimate,
+        openai_model: derivedConfig.openaiModel,
+        openai_base_url: derivedConfig.openaiBaseUrl ?? null,
+        openai_timeout_ms: derivedConfig.openaiTimeoutMs,
+        estimator_prompt_version: derivedConfig.estimatorPromptVersion,
+        estimator_prompt_present: Boolean(derivedConfig.estimatorPrompt)
+      },
+      node_version: process.version,
+      platform: process.platform,
+      timestamp_utc: new Date().toISOString()
+    };
+
+    if (isAdmin) {
+      responseBody.snapshot = envReport.snapshot;
+    }
+
+    return {
+      status: 200,
+      jsonBody: responseBody
     };
   }
 });
@@ -250,15 +307,26 @@ app.http("estimateCalcium", {
     const requestId = getHeader(request, "x-request-id");
     const appVersion = getHeader(request, "x-app-version");
     const debugMode = isDebugMode(request);
+    const derivedConfig = getDerivedConfig();
+    const envReport = buildEnvReport(derivedConfig);
     const configSnapshot = {
       has_openai_key: Boolean(process.env.OPENAI_API_KEY),
-      openai_model: process.env.OPENAI_MODEL ?? null,
-      use_mock_estimate: process.env.USE_MOCK_ESTIMATE === "true",
-      estimation_enabled: ESTIMATION_ENABLED,
-      lockout_active: LOCKOUT_ACTIVE,
-      rate_limit_enabled: RATE_LIMIT_ENABLED,
-      circuit_breaker_enabled: CIRCUIT_BREAKER_ENABLED
+      openai_model: derivedConfig.openaiModel,
+      use_mock_estimate: derivedConfig.useMockEstimate,
+      estimation_enabled: derivedConfig.estimationEnabled,
+      lockout_active: derivedConfig.lockoutActive,
+      rate_limit_enabled: derivedConfig.rateLimitEnabled,
+      circuit_breaker_enabled: derivedConfig.circuitBreakerEnabled
     };
+
+    logEnvSnapshot(context, envReport.snapshot, requestId);
+    if (isNonEmptyString(requestId)) {
+      logEvent(context, "env_check", {
+        request_id: requestId,
+        missing_required: envReport.missing_required,
+        present_required: envReport.required.filter((item) => item.present).map((item) => item.name)
+      });
+    }
 
     if (!isNonEmptyString(deviceInstallId) || !isNonEmptyString(requestId) || !isNonEmptyString(appVersion)) {
       return invalidRequest("Missing required headers.", requestId);
@@ -271,22 +339,38 @@ app.http("estimateCalcium", {
 
     logEvent(context, "estimate_request_received", {
       request_id: requestId,
-      device_install_id_hash: hashDeviceInstallId(deviceInstallId),
+      device_install_id_hash: hashDeviceInstallId(deviceInstallId, derivedConfig.deviceHashSalt),
       app_version: appVersion,
-      rate_limit_enabled: RATE_LIMIT_ENABLED,
-      circuit_breaker_enabled: CIRCUIT_BREAKER_ENABLED
+      rate_limit_enabled: derivedConfig.rateLimitEnabled,
+      circuit_breaker_enabled: derivedConfig.circuitBreakerEnabled
     });
 
-    if (CIRCUIT_BREAKER_ENABLED && !ESTIMATION_ENABLED) {
+    if (derivedConfig.circuitBreakerEnabled && !derivedConfig.estimationEnabled) {
       return temporarilyDisabled("Estimation temporarily unavailable.", requestId);
     }
 
-    if (LOCKOUT_ACTIVE) {
+    if (derivedConfig.lockoutActive) {
       return temporarilyDisabled("Estimation temporarily unavailable.", requestId);
     }
 
-    if (RATE_LIMIT_ENABLED && isRateLimited()) {
+    if (derivedConfig.rateLimitEnabled && isRateLimited()) {
       return rateLimited(requestId);
+    }
+
+    if (envReport.missing_required.length > 0) {
+      logEvent(context, "estimate_blocked_missing_env", {
+        request_id: requestId,
+        missing_required: envReport.missing_required
+      });
+      return {
+        status: 502,
+        jsonBody: {
+          error: "upstream_unavailable",
+          message: "Estimator is not configured.",
+          missing_env: envReport.missing_required,
+          request_id: requestId
+        }
+      };
     }
 
     const body = await parseJson<EstimateCalciumRequest>(request);
@@ -303,23 +387,6 @@ app.http("estimateCalcium", {
       has_openai_key: config.apiKeyPresent,
       model: config.model
     });
-
-    if (!configSnapshot.use_mock_estimate && !configSnapshot.has_openai_key) {
-      logEvent(context, "estimate_blocked_not_configured", {
-        request_id: requestId,
-        ...configSnapshot
-      });
-      return {
-        status: 500,
-        jsonBody: {
-          error: "server_not_configured",
-          message:
-            "Estimator is not configured. Set OPENAI_API_KEY (and optionally OPENAI_MODEL) or enable USE_MOCK_ESTIMATE=true.",
-          request_id: requestId,
-          ...(debugMode ? { debug: configSnapshot } : {})
-        }
-      };
-    }
 
     try {
       const result = await estimateCalcium({
@@ -339,7 +406,7 @@ app.http("estimateCalcium", {
           debug: debugMode
             ? {
                 model: config.model,
-                prompt_version: PROMPT_VERSION,
+                prompt_version: config.promptVersion,
                 request_id: requestId,
                 mode
               }
@@ -369,6 +436,10 @@ app.http("localizationLatest", {
   methods: ["GET"],
   route: "localization/latest",
   handler: async (request, context) => {
+    const derivedConfig = getDerivedConfig();
+    const envReport = buildEnvReport(derivedConfig);
+    const requestId = getHeader(request, "x-request-id");
+    logEnvSnapshot(context, envReport.snapshot, requestId);
     const locale = request.query.get("locale");
     if (!isLocale(locale)) {
       return invalidRequest("Unsupported locale.");
@@ -376,14 +447,14 @@ app.http("localizationLatest", {
 
     logEvent(context, "localization_latest", {
       locale,
-      rate_limit_enabled: RATE_LIMIT_ENABLED
+      rate_limit_enabled: derivedConfig.rateLimitEnabled
     });
 
-    if (RATE_LIMIT_ENABLED && isRateLimited()) {
+    if (derivedConfig.rateLimitEnabled && isRateLimited()) {
       return rateLimited();
     }
 
-    if (CIRCUIT_BREAKER_ENABLED && !ESTIMATION_ENABLED) {
+    if (derivedConfig.circuitBreakerEnabled && !derivedConfig.estimationEnabled) {
       return temporarilyDisabled("Localization temporarily unavailable.");
     }
 
@@ -393,7 +464,7 @@ app.http("localizationLatest", {
         ui_version: "mock-ui-version",
         supported_locales: SUPPORTED_LOCALES,
         locale,
-        pack_url: `${LOCALIZATION_PACK_URL_BASE}/${locale}.json`
+        pack_url: `${derivedConfig.localizationPackUrlBase}/${locale}.json`
       }
     };
   }
@@ -403,8 +474,12 @@ app.http("localizationRegenerate", {
   methods: ["POST"],
   route: "localization/regenerate",
   handler: async (request, context) => {
+    const derivedConfig = getDerivedConfig();
+    const envReport = buildEnvReport(derivedConfig);
+    const requestId = getHeader(request, "x-request-id");
+    logEnvSnapshot(context, envReport.snapshot, requestId);
     const adminKey = getHeader(request, "x-admin-key");
-    if (adminKey !== ADMIN_KEY) {
+    if (adminKey !== derivedConfig.adminKey) {
       return invalidRequest("Unauthorized.");
     }
 
@@ -418,11 +493,11 @@ app.http("localizationRegenerate", {
       locales_count: body.locales.length
     });
 
-    if (RATE_LIMIT_ENABLED && isRateLimited()) {
+    if (derivedConfig.rateLimitEnabled && isRateLimited()) {
       return rateLimited();
     }
 
-    if (CIRCUIT_BREAKER_ENABLED && !ESTIMATION_ENABLED) {
+    if (derivedConfig.circuitBreakerEnabled && !derivedConfig.estimationEnabled) {
       return temporarilyDisabled("Localization temporarily unavailable.");
     }
 
@@ -441,6 +516,10 @@ app.http("suggestion", {
   methods: ["POST"],
   route: "suggestion",
   handler: async (request, context) => {
+    const derivedConfig = getDerivedConfig();
+    const envReport = buildEnvReport(derivedConfig);
+    const requestId = getHeader(request, "x-request-id");
+    logEnvSnapshot(context, envReport.snapshot, requestId);
     const body = await parseJson<SuggestionRequest>(request);
     if (!body || !isSuggestionRequest(body)) {
       return invalidRequest("Invalid suggestion payload.");
@@ -448,14 +527,14 @@ app.http("suggestion", {
 
     logEvent(context, "suggestion_received", {
       category: body.category,
-      rate_limit_enabled: RATE_LIMIT_ENABLED
+      rate_limit_enabled: derivedConfig.rateLimitEnabled
     });
 
-    if (RATE_LIMIT_ENABLED && isRateLimited()) {
+    if (derivedConfig.rateLimitEnabled && isRateLimited()) {
       return rateLimited();
     }
 
-    if (CIRCUIT_BREAKER_ENABLED && !ESTIMATION_ENABLED) {
+    if (derivedConfig.circuitBreakerEnabled && !derivedConfig.estimationEnabled) {
       return temporarilyDisabled("Suggestions temporarily unavailable.");
     }
 

@@ -10,14 +10,35 @@ export type EstimateConfig = {
   model: string;
   baseUrl?: string;
   apiKey?: string;
+  timeoutMs: number;
+  promptVersion: string;
+  promptOverride?: string;
 };
 
 export type EstimateLogger = (event: string, payload: Record<string, unknown>) => void;
 
-export const PROMPT_VERSION = "estimateCalcium_v2";
-
 const DEFAULT_MODEL = "gpt-4o-mini";
-const DEFAULT_TIMEOUT_MS = 20000;
+const DEFAULT_TIMEOUT_MS = 45000;
+const DEFAULT_PROMPT_VERSION = "estimateCalcium_v1";
+
+function parseTimeoutMs(raw: string | undefined): number {
+  if (!raw) {
+    return DEFAULT_TIMEOUT_MS;
+  }
+
+  const parsed = Number(raw);
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return Math.floor(parsed);
+  }
+
+  return DEFAULT_TIMEOUT_MS;
+}
+
+function getPromptVersion(): string {
+  return process.env.ESTIMATOR_PROMPT_VERSION?.trim() || DEFAULT_PROMPT_VERSION;
+}
+
+export const PROMPT_VERSION = getPromptVersion();
 
 export function getConfig(): EstimateConfig {
   const useMock = (process.env.USE_MOCK_ESTIMATE ?? "false").toLowerCase() === "true";
@@ -25,17 +46,27 @@ export function getConfig(): EstimateConfig {
   const apiKeyPresent = Boolean(apiKey);
   const model = process.env.OPENAI_MODEL && process.env.OPENAI_MODEL.trim().length > 0 ? process.env.OPENAI_MODEL : DEFAULT_MODEL;
   const baseUrl = process.env.OPENAI_BASE_URL && process.env.OPENAI_BASE_URL.trim().length > 0 ? process.env.OPENAI_BASE_URL : undefined;
+  const timeoutMs = parseTimeoutMs(process.env.OPENAI_TIMEOUT_MS);
+  const promptOverride = process.env.ESTIMATOR_PROMPT?.trim() || undefined;
+  const promptVersion = getPromptVersion();
 
   return {
     useMock,
     apiKeyPresent,
     model,
     baseUrl,
-    apiKey
+    apiKey,
+    timeoutMs,
+    promptVersion,
+    promptOverride
   };
 }
 
-export function buildEstimatePrompt(answers: EstimateAnswers, locale: string): string {
+export function buildEstimatePrompt(answers: EstimateAnswers, locale: string, promptOverride?: string): string {
+  if (promptOverride) {
+    return promptOverride;
+  }
+
   return [
     "You are a nutrition estimator.",
     "Estimate calcium mg for the meal in the photo.",
@@ -97,7 +128,6 @@ export async function estimateCalcium({
     answers
   });
 
-  const prompt = buildEstimatePrompt(answers, locale);
   const startTime = Date.now();
 
   try {
@@ -106,11 +136,11 @@ export async function estimateCalcium({
       answers,
       locale,
       requestId,
-      prompt,
+      prompt: buildEstimatePrompt(answers, locale, config.promptOverride),
       model: config.model,
       apiKey: config.apiKey,
       baseUrl: config.baseUrl,
-      timeoutMs: DEFAULT_TIMEOUT_MS
+      timeoutMs: config.timeoutMs
     });
 
     logger("estimate_openai_request_done", {
