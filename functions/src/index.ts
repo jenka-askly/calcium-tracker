@@ -1,8 +1,15 @@
 // Purpose: Define Azure Functions HTTP endpoints matching the API contract schemas.
-// Persists: No persistence (stub responses only).
-// Security Risks: Handles request IDs and device identifiers; avoid logging raw values.
+// Persists: No persistence.
+// Security Risks: Handles request IDs, device identifiers, and OpenAI API calls; avoid logging raw values.
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import crypto from "crypto";
+
+import { EstimateError, isEstimateError } from "./services/errors";
+import {
+  PROMPT_VERSION,
+  estimateCalcium,
+  getConfig
+} from "./services/estimateCalciumService";
 
 type Locale = "en" | "zh-Hans" | "es";
 type SuggestionCategory = "bug" | "feature" | "confusing";
@@ -76,6 +83,17 @@ function invalidRequest(message: string): HttpResponseInit {
     jsonBody: {
       error: "invalid_request",
       message
+    }
+  };
+}
+
+function errorResponse(status: number, error: string, message: string, requestId: string): HttpResponseInit {
+  return {
+    status,
+    jsonBody: {
+      error,
+      message,
+      request_id: requestId
     }
   };
 }
@@ -224,6 +242,8 @@ app.http("estimateCalcium", {
     const deviceInstallId = getHeader(request, "x-device-install-id");
     const requestId = getHeader(request, "x-request-id");
     const appVersion = getHeader(request, "x-app-version");
+    const debugHeader = getHeader(request, "x-debug");
+    const includeDebug = process.env.NODE_ENV !== "production" || debugHeader === "1";
 
     if (!isNonEmptyString(deviceInstallId) || !isNonEmptyString(requestId) || !isNonEmptyString(appVersion)) {
       return invalidRequest("Missing required headers.");
@@ -254,28 +274,66 @@ app.http("estimateCalcium", {
       return invalidRequest("Invalid JSON body.");
     }
 
-    const response = {
-      calcium_mg: 300,
-      confidence: 0.6,
-      confidence_label: "medium",
-      follow_up_question: null,
-      debug: {
-        model: "mock-model",
-        prompt_version: "estimateCalcium_v1",
-        request_id: requestId
-      }
-    };
+    const config = getConfig();
+    const mode = config.useMock ? "mock" : "openai";
 
-    logEvent(context, "estimate_request_completed", {
+    logEvent(context, "estimate_mode_select", {
       request_id: requestId,
-      device_install_id_hash: hashDeviceInstallId(deviceInstallId),
-      result: "mock_success"
+      mode,
+      has_openai_key: config.apiKeyPresent,
+      model: config.model
     });
 
-    return {
-      status: 200,
-      jsonBody: response
-    };
+    if (!config.useMock && !config.apiKeyPresent) {
+      return errorResponse(
+        500,
+        "server_not_configured",
+        "Estimator is not configured. Please contact support.",
+        requestId
+      );
+    }
+
+    try {
+      const result = await estimateCalcium({
+        imageBase64: body.image_base64,
+        answers: body.answers,
+        locale: body.locale,
+        requestId,
+        logger: (event, payload) => logEvent(context, event, payload),
+        config
+      });
+
+      return {
+        status: 200,
+        jsonBody: {
+          ...result,
+          follow_up_question: null,
+          debug: includeDebug
+            ? {
+                model: config.model,
+                prompt_version: PROMPT_VERSION,
+                request_id: requestId,
+                mode
+              }
+            : { request_id: requestId }
+        }
+      };
+    } catch (error) {
+      if (isEstimateError(error)) {
+        const errorMessage =
+          error.code === "model_invalid_response"
+            ? "Estimator returned an invalid response. Please try again."
+            : error.code === "upstream_timeout"
+              ? "Estimator timed out. Please try again."
+              : "Estimator is temporarily unavailable. Please try again.";
+
+        const status = error.code === "upstream_timeout" ? 504 : 502;
+        return errorResponse(status, error.code, errorMessage, requestId);
+      }
+
+      const fallbackError = new EstimateError("upstream_unavailable", "Unhandled estimate error.", error);
+      return errorResponse(502, fallbackError.code, "Estimator is temporarily unavailable. Please try again.", requestId);
+    }
   }
 });
 

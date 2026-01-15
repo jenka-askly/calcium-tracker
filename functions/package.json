@@ -11,7 +11,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@azure/functions": "^4.4.0"
+    "@azure/functions": "^4.4.0",
+    "openai": "^4.86.2"
   },
   "devDependencies": {
     "@types/node": "^20.11.25",
