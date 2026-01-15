@@ -5,7 +5,7 @@ import Constants from "expo-constants";
 
 import type { Locale } from "./i18n";
 import { createUuidV4 } from "../utils/uuid";
-import { log } from "../utils/logger";
+import { error as logError, log } from "../utils/logger";
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:7071";
 const FETCH_TIMEOUT_MS = 10000;
@@ -89,6 +89,42 @@ export type ApiResult<T> =
   | { ok: true; data: T }
   | { ok: false; status: number; error: RateLimitedError | TemporarilyDisabledError | InvalidRequestError };
 
+export type ApiErrorKind = "NETWORK" | "TIMEOUT" | "HTTP" | "CANCEL" | "UNKNOWN";
+
+export class ApiClientError extends Error {
+  kind: ApiErrorKind;
+  messageUser: string;
+  messageDev: string;
+  status?: number;
+  url: string;
+  method: string;
+  traceId: string;
+
+  constructor(params: {
+    kind: ApiErrorKind;
+    messageUser: string;
+    messageDev: string;
+    status?: number;
+    url: string;
+    method: string;
+    traceId: string;
+  }) {
+    super(params.messageDev);
+    this.name = "ApiClientError";
+    this.kind = params.kind;
+    this.messageUser = params.messageUser;
+    this.messageDev = params.messageDev;
+    this.status = params.status;
+    this.url = params.url;
+    this.method = params.method;
+    this.traceId = params.traceId;
+  }
+}
+
+export function isApiClientError(error: unknown): error is ApiClientError {
+  return error instanceof ApiClientError;
+}
+
 const appVersion = Constants.expoConfig?.version ?? "0.0.0";
 
 function buildUrl(path: string): string {
@@ -104,20 +140,78 @@ function toSafeUrl(rawUrl: string): string {
   }
 }
 
+function messageForKind(kind: ApiErrorKind): string {
+  switch (kind) {
+    case "NETWORK":
+      return "Can’t reach the server right now. Check Wi-Fi and try again.";
+    case "TIMEOUT":
+      return "The server is taking too long to respond. Try again.";
+    case "HTTP":
+      return "Something went wrong on our side. Please try again.";
+    case "CANCEL":
+      return "The request was canceled. Please try again.";
+    default:
+      return "Something went wrong. Please try again.";
+  }
+}
+
+function isNetworkErrorMessage(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("network request failed") ||
+    normalized.includes("failed to fetch") ||
+    normalized.includes("networkerror")
+  );
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+function buildApiClientError(params: {
+  kind: ApiErrorKind;
+  messageDev: string;
+  status?: number;
+  url: string;
+  method: string;
+  traceId: string;
+}): ApiClientError {
+  return new ApiClientError({
+    ...params,
+    messageUser: messageForKind(params.kind)
+  });
+}
+
+async function readResponseSnippet(response: Response): Promise<string> {
+  try {
+    const text = await response.text();
+    if (!text) {
+      return "empty_body";
+    }
+    return text.length > 300 ? `${text.slice(0, 300)}…` : text;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return `unreadable_body:${message}`;
+  }
+}
+
 export async function fetchWithLogging(
   rawUrl: string,
   init?: RequestInit,
-  requestId?: string
+  traceId?: string
 ): Promise<Response> {
   const method = init?.method ?? "GET";
   const safeUrl = toSafeUrl(rawUrl);
   const controller = new AbortController();
   const start = Date.now();
+  let didTimeout = false;
+  const resolvedTraceId = traceId ?? (await createUuidV4());
 
-  log("net", "req", { method, url: safeUrl, request_id: requestId });
+  log("net", "req", { method, url: safeUrl, request_id: resolvedTraceId });
 
   const timeoutId = setTimeout(() => {
-    log("net", "abort", { url: safeUrl, ms: FETCH_TIMEOUT_MS, request_id: requestId });
+    didTimeout = true;
+    log("net", "abort", { url: safeUrl, ms: FETCH_TIMEOUT_MS, request_id: resolvedTraceId });
     controller.abort();
   }, FETCH_TIMEOUT_MS);
 
@@ -126,67 +220,115 @@ export async function fetchWithLogging(
       ...init,
       signal: controller.signal
     });
-    log("net", "res", { status: response.status, ms: Date.now() - start, request_id: requestId });
+    log("net", "res", { status: response.status, ms: Date.now() - start, request_id: resolvedTraceId });
     return response;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    log("net", "err", { message, ms: Date.now() - start, request_id: requestId });
-    console.error(error);
-    throw error;
+    const stack = error instanceof Error && error.stack ? ` stack=${error.stack}` : "";
+    const kind: ApiErrorKind = didTimeout
+      ? "TIMEOUT"
+      : isAbortError(error)
+        ? "CANCEL"
+        : isNetworkErrorMessage(message)
+          ? "NETWORK"
+          : "UNKNOWN";
+    const messageDev = `${kind} error for ${method} ${safeUrl}: ${message}${stack}`;
+    const apiError = buildApiClientError({
+      kind,
+      messageDev,
+      url: safeUrl,
+      method,
+      traceId: resolvedTraceId
+    });
+    logError("net", "err", {
+      kind: apiError.kind,
+      url: apiError.url,
+      method: apiError.method,
+      status: apiError.status ?? null,
+      message: apiError.messageDev,
+      request_id: apiError.traceId,
+      ms: Date.now() - start
+    });
+    throw apiError;
   } finally {
     clearTimeout(timeoutId);
   }
 }
 
-export async function getStatus(): Promise<StatusResponse> {
-  const response = await fetchWithLogging(buildUrl("/api/status"));
+async function requestJson<T>(
+  rawUrl: string,
+  init?: RequestInit,
+  traceId?: string
+): Promise<{ data: T; traceId: string }> {
+  const resolvedTraceId = traceId ?? (await createUuidV4());
+  const response = await fetchWithLogging(rawUrl, init, resolvedTraceId);
+  const method = init?.method ?? "GET";
+  const safeUrl = toSafeUrl(rawUrl);
+
   if (!response.ok) {
-    throw new Error("Status request failed");
+    const bodySnippet = await readResponseSnippet(response);
+    const messageDev = `HTTP ${response.status} for ${method} ${safeUrl}; body=${bodySnippet}`;
+    const apiError = buildApiClientError({
+      kind: "HTTP",
+      messageDev,
+      status: response.status,
+      url: safeUrl,
+      method,
+      traceId: resolvedTraceId
+    });
+    logError("net", "http_error", {
+      kind: apiError.kind,
+      url: apiError.url,
+      method: apiError.method,
+      status: apiError.status,
+      message: apiError.messageDev,
+      request_id: apiError.traceId
+    });
+    throw apiError;
   }
-  return (await response.json()) as StatusResponse;
+
+  return { data: (await response.json()) as T, traceId: resolvedTraceId };
+}
+
+export async function getStatus(): Promise<StatusResponse> {
+  const traceId = await createUuidV4();
+  const { data } = await requestJson<StatusResponse>(buildUrl("/api/status"), undefined, traceId);
+  return data;
 }
 
 export async function getLocalizationLatest(locale: Locale): Promise<LocalizationLatestResponse> {
   const url = new URL(buildUrl("/api/localization/latest"));
   url.searchParams.set("locale", locale);
-  const response = await fetchWithLogging(url.toString());
-  if (!response.ok) {
-    throw new Error("Localization request failed");
-  }
-  return (await response.json()) as LocalizationLatestResponse;
+  const traceId = await createUuidV4();
+  const { data } = await requestJson<LocalizationLatestResponse>(url.toString(), undefined, traceId);
+  return data;
 }
 
 export async function estimateCalcium(
   deviceInstallId: string,
   request: EstimateCalciumRequest
-): Promise<ApiResult<EstimateCalciumResponse>> {
-  const requestId = await createUuidV4();
-  const response = await fetchWithLogging(
+): Promise<EstimateCalciumResponse> {
+  const traceId = await createUuidV4();
+  const { data } = await requestJson<EstimateCalciumResponse>(
     buildUrl("/api/estimateCalcium"),
     {
       method: "POST",
       headers: {
         "content-type": "application/json",
         "x-device-install-id": deviceInstallId,
-        "x-request-id": requestId,
+        "x-request-id": traceId,
         "x-app-version": appVersion
       },
       body: JSON.stringify(request)
     },
-    requestId
+    traceId
   );
-
-  if (response.ok) {
-    const data = (await response.json()) as EstimateCalciumResponse;
-    return { ok: true, data };
-  }
-
-  const error = (await response.json()) as RateLimitedError | TemporarilyDisabledError | InvalidRequestError;
-  return { ok: false, status: response.status, error };
+  return data;
 }
 
 export async function sendSuggestion(request: SuggestionRequest): Promise<ApiResult<SuggestionResponse>> {
-  const response = await fetchWithLogging(
+  const traceId = await createUuidV4();
+  const { data } = await requestJson<SuggestionResponse>(
     buildUrl("/api/suggestion"),
     {
       method: "POST",
@@ -194,14 +336,8 @@ export async function sendSuggestion(request: SuggestionRequest): Promise<ApiRes
         "content-type": "application/json"
       },
       body: JSON.stringify(request)
-    }
+    },
+    traceId
   );
-
-  if (response.ok) {
-    const data = (await response.json()) as SuggestionResponse;
-    return { ok: true, data };
-  }
-
-  const error = (await response.json()) as RateLimitedError | TemporarilyDisabledError | InvalidRequestError;
-  return { ok: false, status: response.status, error };
+  return { ok: true, data };
 }
