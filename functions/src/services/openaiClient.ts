@@ -99,24 +99,25 @@ export async function estimateFromImageAndAnswers({
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await client.responses.create(
-      {
-        model,
-        input: [
-          {
-            role: "user",
-            content: [
-              { type: "input_text", text: prompt },
-              { type: "input_text", text: `Locale: ${locale}. Request ID: ${requestId}.` },
-              { type: "input_text", text: `Answers: portion=${answers.portion_size}, dairy=${answers.contains_dairy}, tofu_or_small_fish_bones=${answers.contains_tofu_or_small_fish_bones}.` },
-              { type: "input_image", image_url: `data:image/jpeg;base64,${imageBase64}`, detail: "auto" }
-            ]
-          }
-        ],
-        response_format: { type: "json_schema", json_schema: RESPONSE_SCHEMA }
-      },
-      { signal: controller.signal }
-    );
+    const responseParams: OpenAI.Responses.ResponseCreateParamsBase & {
+      response_format: { type: "json_schema"; json_schema: typeof RESPONSE_SCHEMA };
+    } = {
+      model,
+      input: [
+        {
+          role: "user",
+          content: [
+            { type: "input_text", text: prompt },
+            { type: "input_text", text: `Locale: ${locale}. Request ID: ${requestId}.` },
+            { type: "input_text", text: `Answers: portion=${answers.portion_size}, dairy=${answers.contains_dairy}, tofu_or_small_fish_bones=${answers.contains_tofu_or_small_fish_bones}.` },
+            { type: "input_image", image_url: `data:image/jpeg;base64,${imageBase64}`, detail: "auto" }
+          ]
+        }
+      ],
+      response_format: { type: "json_schema", json_schema: RESPONSE_SCHEMA }
+    };
+
+    const response = await client.responses.create(responseParams, { signal: controller.signal });
 
     const outputText = getOutputText(response);
     if (!outputText) {
