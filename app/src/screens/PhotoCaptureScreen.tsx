@@ -6,7 +6,6 @@ import { ActivityIndicator, Alert, StyleSheet, Text, View } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { CameraView, type CameraViewRef, useCameraPermissions } from "expo-camera";
 import * as FileSystem from "expo-file-system";
-import { v4 as uuidv4 } from "uuid";
 
 import { PrimaryButton } from "../components/PrimaryButton";
 import { useAppContext } from "../context/AppContext";
@@ -14,6 +13,7 @@ import { usePhotoCaptureContext } from "../context/PhotoCaptureContext";
 import { translate } from "../services/i18n";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 import { log } from "../utils/logger";
+import { createUuidV4 } from "../utils/uuid";
 
 type Props = NativeStackScreenProps<RootStackParamList, "PhotoCapture">;
 
@@ -110,58 +110,15 @@ export function PhotoCaptureScreen({ navigation }: Props) {
         <PrimaryButton
           label={translate(strings, "capture_photo")}
           onPress={async () => {
+            log("photo_capture", "capture:panic_handler_enter", {});
             log("photo_capture", "capture:handler_enter", {});
             Alert.alert("DEBUG", "capture handler enter");
             // DEBUG TOUCH
             log("photo_capture", "capture:press", {});
             // DEBUG TOUCH
-
-            const captureId = uuidv4();
-            const hasPermission = permission?.granted ?? false;
-            const isCameraReady = isReady;
-            const refPresent = !!cameraRef.current;
-
-            log("photo_capture", "capture:prechecks", {
-              hasPermission,
-              isCameraReady,
-              refPresent
-            });
-
-            if (isCapturing) {
-              log("photo_capture", "capture:guard_return", {
-                reason: "capture_in_progress"
-              });
-              Alert.alert("Capture blocked", "capture_in_progress");
-              return;
-            }
-
-            if (!hasPermission) {
-              log("photo_capture", "capture:guard_return", {
-                reason: "permission_missing"
-              });
-              Alert.alert("Capture blocked", "permission_missing");
-              return;
-            }
-
-            if (!isCameraReady) {
-              log("photo_capture", "capture:guard_return", {
-                reason: "camera_not_ready"
-              });
-              Alert.alert("Capture blocked", "camera_not_ready");
-              return;
-            }
-
-            if (!refPresent) {
-              log("photo_capture", "capture:guard_return", {
-                reason: "camera_ref_missing"
-              });
-              Alert.alert("Capture blocked", "camera_ref_missing");
-              return;
-            }
-
-            setIsCapturing(true);
             let watchdogId: ReturnType<typeof setTimeout> | null = null;
             let watchdogSettled = false;
+            let didStartCapture = false;
 
             const clearWatchdog = () => {
               if (watchdogSettled) {
@@ -174,6 +131,52 @@ export function PhotoCaptureScreen({ navigation }: Props) {
             };
 
             try {
+              const captureId = await createUuidV4();
+              log("photo_capture", "capture:id_generated", { captureId });
+              const hasPermission = permission?.granted ?? false;
+              const isCameraReady = isReady;
+              const refPresent = !!cameraRef.current;
+
+              log("photo_capture", "capture:prechecks", {
+                hasPermission,
+                isCameraReady,
+                refPresent
+              });
+
+              if (isCapturing) {
+                log("photo_capture", "capture:guard_return", {
+                  reason: "capture_in_progress"
+                });
+                Alert.alert("Capture blocked", "capture_in_progress");
+                return;
+              }
+
+              if (!hasPermission) {
+                log("photo_capture", "capture:guard_return", {
+                  reason: "permission_missing"
+                });
+                Alert.alert("Capture blocked", "permission_missing");
+                return;
+              }
+
+              if (!isCameraReady) {
+                log("photo_capture", "capture:guard_return", {
+                  reason: "camera_not_ready"
+                });
+                Alert.alert("Capture blocked", "camera_not_ready");
+                return;
+              }
+
+              if (!refPresent) {
+                log("photo_capture", "capture:guard_return", {
+                  reason: "camera_ref_missing"
+                });
+                Alert.alert("Capture blocked", "camera_ref_missing");
+                return;
+              }
+
+              setIsCapturing(true);
+              didStartCapture = true;
               log("photo_capture", "capture:takePicture_start", {});
               watchdogId = setTimeout(() => {
                 if (watchdogSettled) {
@@ -227,14 +230,15 @@ export function PhotoCaptureScreen({ navigation }: Props) {
               });
               navigation.navigate("PhotoReview");
             } catch (error) {
-              clearWatchdog();
               const message = error instanceof Error ? error.message : String(error);
               const stack = error instanceof Error ? error.stack ?? null : null;
               log("photo_capture", "capture:error", { message, stack });
               Alert.alert("Capture failed", message);
             } finally {
               clearWatchdog();
-              setIsCapturing(false);
+              if (didStartCapture) {
+                setIsCapturing(false);
+              }
             }
           }}
           onPressIn={() => {
