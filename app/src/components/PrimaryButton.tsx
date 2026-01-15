@@ -9,14 +9,28 @@ type PrimaryButtonProps = {
   onPress: () => void;
   style?: ViewStyle;
   disabled?: boolean;
+  onPressIn?: () => void;
+  onPressOut?: () => void;
+  onTouchStart?: () => void;
 };
 
-export function PrimaryButton({ label, onPress, style, disabled }: PrimaryButtonProps) {
+export function PrimaryButton({
+  label,
+  onPress,
+  style,
+  disabled,
+  onPressIn,
+  onPressOut,
+  onTouchStart
+}: PrimaryButtonProps) {
   return (
     <Pressable
       accessibilityRole="button"
       style={[styles.button, disabled ? styles.disabled : null, style]}
       onPress={onPress}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+      onTouchStart={onTouchStart}
       disabled={disabled}
     >
       <Text style={styles.label}>{label}</Text>

@@ -24,6 +24,7 @@ export function PhotoCaptureScreen({ navigation }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
   const [isReady, setIsReady] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
+  const captureDisabled = isCapturing;
 
   useEffect(() => {
     // DEBUG PHOTO PIPELINE
@@ -232,10 +233,44 @@ export function PhotoCaptureScreen({ navigation }: Props) {
     }
   }, [isCapturing, isReady, navigation, permission, requestPermission, setPhoto]);
 
+  useEffect(() => {
+    // DEBUG TOUCH
+    log("photo_capture", "render:capture_button", {
+      hasPermission: permission?.granted ?? false,
+      isCameraReady: isReady,
+      disabled: captureDisabled,
+      onPressType: typeof handleCapture
+    });
+    // DEBUG TOUCH
+  }, [captureDisabled, handleCapture, isReady, permission?.granted]);
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>{translate(strings, "take_photo")}</Text>
-      <View style={styles.cameraFrame}>
+      {/* DEBUG TOUCH */}
+      <PrimaryButton
+        label="DEBUG CAPTURE"
+        onPress={() => {
+          log("photo_capture", "capture:debug_button_press", {});
+          handleCapture();
+        }}
+      />
+      {/* DEBUG TOUCH */}
+      <View
+        style={styles.cameraFrame}
+        pointerEvents="box-none"
+        onTouchStart={() => {
+          // DEBUG TOUCH
+          log("photo_capture", "preview:touch_start", {});
+          // DEBUG TOUCH
+        }}
+        onStartShouldSetResponder={() => {
+          // DEBUG TOUCH
+          log("photo_capture", "preview:responder_granted", {});
+          // DEBUG TOUCH
+          return true;
+        }}
+      >
         {permission?.granted ? (
           <CameraView
             ref={cameraRef}
@@ -254,11 +289,34 @@ export function PhotoCaptureScreen({ navigation }: Props) {
           </View>
         )}
       </View>
-      <PrimaryButton
-        label={translate(strings, "capture_photo")}
-        onPress={handleCapture}
-        disabled={isCapturing}
-      />
+      <View style={styles.captureContainer} pointerEvents="box-none">
+        <PrimaryButton
+          label={translate(strings, "capture_photo")}
+          onPress={() => {
+            // DEBUG TOUCH
+            log("photo_capture", "capture:press", {});
+            // DEBUG TOUCH
+            handleCapture();
+          }}
+          onPressIn={() => {
+            // DEBUG TOUCH
+            log("photo_capture", "capture:press_in", {});
+            // DEBUG TOUCH
+          }}
+          onPressOut={() => {
+            // DEBUG TOUCH
+            log("photo_capture", "capture:press_out", {});
+            // DEBUG TOUCH
+          }}
+          onTouchStart={() => {
+            // DEBUG TOUCH
+            log("photo_capture", "capture:touch_start", {});
+            // DEBUG TOUCH
+          }}
+          disabled={captureDisabled}
+          style={styles.captureButton}
+        />
+      </View>
       {isCapturing ? <ActivityIndicator style={styles.loading} /> : null}
     </View>
   );
@@ -294,6 +352,22 @@ const styles = StyleSheet.create({
     color: "#e2e8f0",
     fontSize: 16,
     textAlign: "center"
+  },
+  captureContainer: {
+    // DEBUG TOUCH
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 24,
+    zIndex: 9999,
+    elevation: 9999,
+    alignItems: "center",
+    paddingHorizontal: 20,
+    backgroundColor: "rgba(255, 0, 0, 0.2)"
+    // DEBUG TOUCH
+  },
+  captureButton: {
+    width: "100%"
   },
   loading: {
     marginTop: 12
