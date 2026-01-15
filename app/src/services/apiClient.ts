@@ -1,4 +1,4 @@
-// Purpose: Provide typed API client functions and network logging for the Azure Functions backend.
+// Purpose: Provide typed API client functions and network logging for the Azure Functions backend, including base URL resolution.
 // Persists: No persistence.
 // Security Risks: Sends device identifiers and request IDs; avoid logging raw values or secrets.
 import Constants from "expo-constants";
@@ -7,10 +7,48 @@ import type { Locale } from "./i18n";
 import { createUuidV4 } from "../utils/uuid";
 import { error as logError, log } from "../utils/logger";
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:7071";
+const DEFAULT_LOCALHOST_BASE_URL = "http://localhost:7071";
+
+function extractHost(hostUri: string): string | null {
+  const trimmed = hostUri.replace(/^https?:\/\//, "").split("/")[0];
+  const host = trimmed.split(":")[0]?.trim();
+  return host ? host : null;
+}
+
+function resolveApiBaseUrl(): string {
+  const envUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
+  if (envUrl) {
+    return envUrl;
+  }
+
+  const manifest = Constants as {
+    manifest?: { debuggerHost?: string };
+    manifest2?: { extra?: { expoClient?: { hostUri?: string; debuggerHost?: string } } };
+  };
+  const hostCandidates = [
+    Constants.expoConfig?.hostUri,
+    manifest.manifest?.debuggerHost,
+    manifest.manifest2?.extra?.expoClient?.hostUri,
+    manifest.manifest2?.extra?.expoClient?.debuggerHost
+  ];
+
+  for (const candidate of hostCandidates) {
+    if (!candidate) {
+      continue;
+    }
+    const host = extractHost(candidate);
+    if (host && host !== "localhost" && host !== "127.0.0.1") {
+      return `http://${host}:7071`;
+    }
+  }
+
+  return DEFAULT_LOCALHOST_BASE_URL;
+}
+
+const API_BASE_URL = resolveApiBaseUrl();
 const FETCH_TIMEOUT_MS = 10000;
 
-log("net", "base_url", { base_url: API_BASE_URL });
+log("api", "base_url", { base_url: API_BASE_URL });
 
 export type PortionSize = "small" | "medium" | "large";
 export type YesNoNotSure = "yes" | "no" | "not_sure";
