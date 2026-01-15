@@ -59,6 +59,10 @@ export function PhotoCaptureScreen({ navigation }: Props) {
     // DEBUG CAPTURE
 
     if (isCapturing) {
+      log("camera", "capture:blocked", {
+        captureId,
+        reason: "capture_in_progress"
+      });
       return;
     }
 
@@ -238,6 +242,11 @@ export function PhotoCaptureScreen({ navigation }: Props) {
             style={styles.camera}
             facing="back"
             onCameraReady={handleCameraReady}
+            onMountError={(event) => {
+              log("camera", "mount_error", {
+                message: event.nativeEvent.message
+              });
+            }}
           />
         ) : (
           <View style={styles.permissionFallback}>
@@ -248,7 +257,7 @@ export function PhotoCaptureScreen({ navigation }: Props) {
       <PrimaryButton
         label={translate(strings, "capture_photo")}
         onPress={handleCapture}
-        disabled={isCapturing || (permission?.granted ? !isReady : false)}
+        disabled={isCapturing}
       />
       {isCapturing ? <ActivityIndicator style={styles.loading} /> : null}
     </View>
