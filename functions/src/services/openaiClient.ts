@@ -105,7 +105,7 @@ export async function estimateFromImageAndAnswers({
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const responseParams: OpenAI.Responses.ResponseCreateParams = {
+    const responseParams = {
       model,
       input: [
         {
@@ -118,10 +118,14 @@ export async function estimateFromImageAndAnswers({
           ]
         }
       ],
-      response_format: { type: "json_schema", json_schema: RESPONSE_SCHEMA }
-    };
+      response_format: { type: "json_schema", json_schema: RESPONSE_SCHEMA },
+      stream: false
+    } as OpenAI.Responses.ResponseCreateParams;
 
     const response = await client.responses.create(responseParams, { signal: controller.signal });
+    if (!("output" in response)) {
+      throw new EstimateError("model_invalid_response", "Model returned a streamed response.");
+    }
 
     const outputText = getOutputText(response);
     if (!outputText) {
