@@ -2,7 +2,7 @@
 // Persists: No persistence.
 // Security Risks: Accesses OpenAI configuration and transmits image data to OpenAI.
 import { EstimateError } from "./errors";
-import { EstimateAnswers, EstimateResult, estimateFromImageAndAnswers } from "./openaiClient";
+import { EstimateAnswers, EstimateOpenAIResult, EstimateResult, estimateFromImageAndAnswers } from "./openaiClient";
 
 export type EstimateConfig = {
   useMock: boolean;
@@ -13,6 +13,13 @@ export type EstimateConfig = {
   timeoutMs: number;
   promptVersion: string;
   promptOverride?: string;
+};
+
+export type EstimateOutcome = {
+  result: EstimateResult;
+  rawText: string | null;
+  latencyMs: number;
+  mode: "mock" | "openai";
 };
 
 export type EstimateLogger = (event: string, payload: Record<string, unknown>) => void;
@@ -41,7 +48,7 @@ function getPromptVersion(): string {
 export const PROMPT_VERSION = getPromptVersion();
 
 export function getConfig(): EstimateConfig {
-  const useMock = (process.env.USE_MOCK_ESTIMATE ?? "false").toLowerCase() === "true";
+  const useMock = (process.env.ESTIMATE_MODE ?? "").toLowerCase() === "mock";
   const apiKey = process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.trim().length > 0 ? process.env.OPENAI_API_KEY : undefined;
   const apiKeyPresent = Boolean(apiKey);
   const model = process.env.OPENAI_MODEL && process.env.OPENAI_MODEL.trim().length > 0 ? process.env.OPENAI_MODEL : DEFAULT_MODEL;
@@ -97,7 +104,7 @@ export async function estimateCalcium({
   requestId: string;
   logger: EstimateLogger;
   config: EstimateConfig;
-}): Promise<EstimateResult> {
+}): Promise<EstimateOutcome> {
   if (config.useMock) {
     const mockResult: EstimateResult = {
       calcium_mg: 300,
@@ -114,7 +121,12 @@ export async function estimateCalcium({
       confidence_label: mockResult.confidence_label
     });
 
-    return mockResult;
+    return {
+      result: mockResult,
+      rawText: null,
+      latencyMs: 0,
+      mode: "mock"
+    };
   }
 
   if (!config.apiKey) {
@@ -131,7 +143,7 @@ export async function estimateCalcium({
   const startTime = Date.now();
 
   try {
-    const result = await estimateFromImageAndAnswers({
+    const openaiResult: EstimateOpenAIResult = await estimateFromImageAndAnswers({
       imageBase64,
       answers,
       locale,
@@ -143,19 +155,25 @@ export async function estimateCalcium({
       timeoutMs: config.timeoutMs
     });
 
+    const latencyMs = Date.now() - startTime;
     logger("estimate_openai_request_done", {
       request_id: requestId,
-      latency_ms: Date.now() - startTime
+      latency_ms: latencyMs
     });
 
     logger("estimate_request_completed", {
       request_id: requestId,
       result: "openai_success",
-      calcium_mg: result.calcium_mg,
-      confidence_label: result.confidence_label
+      calcium_mg: openaiResult.result.calcium_mg,
+      confidence_label: openaiResult.result.confidence_label
     });
 
-    return result;
+    return {
+      result: openaiResult.result,
+      rawText: openaiResult.rawText,
+      latencyMs,
+      mode: "openai"
+    };
   } catch (error) {
     logger("estimate_openai_request_done", {
       request_id: requestId,

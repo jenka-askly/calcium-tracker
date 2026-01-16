@@ -312,6 +312,7 @@ app.http("estimateCalcium", {
     const configSnapshot = {
       has_openai_key: Boolean(process.env.OPENAI_API_KEY),
       openai_model: derivedConfig.openaiModel,
+      estimate_mode: derivedConfig.estimateMode,
       use_mock_estimate: derivedConfig.useMockEstimate,
       estimation_enabled: derivedConfig.estimationEnabled,
       lockout_active: derivedConfig.lockoutActive,
@@ -389,7 +390,7 @@ app.http("estimateCalcium", {
     });
 
     try {
-      const result = await estimateCalcium({
+      const outcome = await estimateCalcium({
         imageBase64: body.image_base64,
         answers: body.answers,
         locale: body.locale,
@@ -398,29 +399,58 @@ app.http("estimateCalcium", {
         config
       });
 
+      if (mode === "openai") {
+        const rawTextLength = outcome.rawText ? outcome.rawText.length : 0;
+        logEvent(context, "estimate_openai_raw_text_present", {
+          request_id: requestId,
+          present: rawTextLength > 0,
+          length: rawTextLength
+        });
+        logEvent(context, "estimate_openai_parsed_result", {
+          request_id: requestId,
+          calcium_mg: outcome.result.calcium_mg,
+          confidence: outcome.result.confidence,
+          confidence_label: outcome.result.confidence_label
+        });
+      }
+
+      logEvent(context, "estimate_response_sent", {
+        request_id: requestId,
+        calcium_mg: outcome.result.calcium_mg,
+        confidence: outcome.result.confidence,
+        confidence_label: outcome.result.confidence_label
+      });
+
       return {
         status: 200,
         jsonBody: {
-          ...result,
+          ...outcome.result,
           follow_up_question: null,
-          debug: debugMode
+          ...(debugMode
             ? {
-                model: config.model,
-                prompt_version: config.promptVersion,
-                request_id: requestId,
-                mode
+                debug: {
+                  model: config.model,
+                  latency_ms: outcome.latencyMs,
+                  request_id: requestId
+                }
               }
-            : { request_id: requestId }
+            : {})
         }
       };
     } catch (error) {
       if (isEstimateError(error)) {
+        if (error.code === "model_invalid_response") {
+          logEvent(context, "estimate_openai_parse_failed", {
+            request_id: requestId,
+            message: error.message
+          });
+          return errorResponse(502, error.code, "Model returned invalid JSON", requestId);
+        }
+
         const errorMessage =
-          error.code === "model_invalid_response"
-            ? "Estimator returned an invalid response. Please try again."
-            : error.code === "upstream_timeout"
-              ? "Estimator timed out. Please try again."
-              : "Estimator is temporarily unavailable. Please try again.";
+          error.code === "upstream_timeout"
+            ? "Estimator timed out. Please try again."
+            : "Estimator is temporarily unavailable. Please try again.";
 
         const status = error.code === "upstream_timeout" ? 504 : 502;
         return errorResponse(status, error.code, errorMessage, requestId);

@@ -19,6 +19,11 @@ export type EstimateResult = {
   warnings: string[];
 };
 
+export type EstimateOpenAIResult = {
+  result: EstimateResult;
+  rawText: string;
+};
+
 const RESPONSE_SCHEMA = {
   name: "calcium_estimate",
   schema: {
@@ -99,7 +104,7 @@ export async function estimateFromImageAndAnswers({
   apiKey: string;
   baseUrl?: string;
   timeoutMs: number;
-}): Promise<EstimateResult> {
+}): Promise<EstimateOpenAIResult> {
   const client = new OpenAI({ apiKey, baseURL: baseUrl });
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -132,7 +137,7 @@ export async function estimateFromImageAndAnswers({
       throw new EstimateError("model_invalid_response", "Model returned empty response.");
     }
 
-    return parseEstimatePayload(outputText);
+    return { result: parseEstimatePayload(outputText), rawText: outputText };
   } catch (error) {
     if (error instanceof EstimateError) {
       throw error;
