@@ -12,6 +12,7 @@ export type DerivedConfig = {
   deviceHashSalt: string;
   localizationPackUrlBase: string;
   useMockEstimate: boolean;
+  estimateMode: string;
   openaiModel: string;
   openaiBaseUrl?: string;
   openaiTimeoutMs: number;
@@ -88,7 +89,8 @@ export function getDerivedConfig(): DerivedConfig {
   const adminKey = process.env.ADMIN_KEY ?? "changeme";
   const deviceHashSalt = process.env.DEVICE_HASH_SALT ?? "local-dev-salt";
   const localizationPackUrlBase = process.env.LOCALIZATION_PACK_URL_BASE ?? "http://localhost:7071/locales";
-  const useMockEstimate = (process.env.USE_MOCK_ESTIMATE ?? "false").toLowerCase() === "true";
+  const estimateMode = process.env.ESTIMATE_MODE?.trim() || "openai";
+  const useMockEstimate = estimateMode.toLowerCase() === "mock";
   const openaiModel = process.env.OPENAI_MODEL?.trim() || DEFAULT_OPENAI_MODEL;
   const openaiBaseUrl = process.env.OPENAI_BASE_URL?.trim() || undefined;
   const openaiTimeoutMs = parseTimeoutMs(process.env.OPENAI_TIMEOUT_MS);
@@ -104,6 +106,7 @@ export function getDerivedConfig(): DerivedConfig {
     deviceHashSalt,
     localizationPackUrlBase,
     useMockEstimate,
+    estimateMode,
     openaiModel,
     openaiBaseUrl,
     openaiTimeoutMs,
@@ -164,11 +167,11 @@ export function getEnvSpec(): EnvSpec[] {
       description: "Base URL for localization packs."
     },
     {
-      name: "USE_MOCK_ESTIMATE",
+      name: "ESTIMATE_MODE",
       requiredWhen: () => false,
       isSecret: false,
-      defaultValue: "false",
-      description: "Use mock estimation responses instead of OpenAI."
+      defaultValue: "openai",
+      description: "Estimation mode (set to mock to return stubbed results)."
     },
     {
       name: "OPENAI_API_KEY",
