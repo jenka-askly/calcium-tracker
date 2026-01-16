@@ -308,6 +308,7 @@ app.http("estimateCalcium", {
     const appVersion = getHeader(request, "x-app-version");
     const debugMode = isDebugMode(request);
     const derivedConfig = getDerivedConfig();
+    const config = getConfig();
     const envReport = buildEnvReport(derivedConfig);
     const configSnapshot = {
       has_openai_key: Boolean(process.env.OPENAI_API_KEY),
@@ -319,6 +320,14 @@ app.http("estimateCalcium", {
       rate_limit_enabled: derivedConfig.rateLimitEnabled,
       circuit_breaker_enabled: derivedConfig.circuitBreakerEnabled
     };
+
+    logEvent(context, "estimate_mode_config", {
+      ...(isNonEmptyString(requestId) ? { request_id: requestId } : {}),
+      use_mock: config.useMock,
+      has_openai_key: config.apiKeyPresent,
+      model: config.model,
+      prompt_version: config.promptVersion
+    });
 
     logEnvSnapshot(context, envReport.snapshot, requestId);
     if (isNonEmptyString(requestId)) {
@@ -379,7 +388,6 @@ app.http("estimateCalcium", {
       return invalidRequest("Invalid JSON body.", requestId);
     }
 
-    const config = getConfig();
     const mode = config.useMock ? "mock" : "openai";
 
     logEvent(context, "estimate_mode_select", {
@@ -418,6 +426,12 @@ app.http("estimateCalcium", {
         request_id: requestId,
         calcium_mg: outcome.result.calcium_mg,
         confidence: outcome.result.confidence,
+        confidence_label: outcome.result.confidence_label
+      });
+
+      logEvent(context, "estimate_http_response", {
+        request_id: requestId,
+        calcium_mg: outcome.result.calcium_mg,
         confidence_label: outcome.result.confidence_label
       });
 

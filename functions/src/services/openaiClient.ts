@@ -77,7 +77,7 @@ function parseEstimatePayload(payload: string): EstimateResult {
   }
 
   const result = parsed as EstimateResult;
-  if (typeof result.calcium_mg !== "number") {
+  if (!Number.isFinite(result.calcium_mg)) {
     throw new EstimateError("model_invalid_response", "Model response missing calcium estimate.");
   }
 
@@ -136,6 +136,15 @@ export async function estimateFromImageAndAnswers({
     if (!outputText) {
       throw new EstimateError("model_invalid_response", "Model returned empty response.");
     }
+
+    const preview = outputText.slice(0, 200);
+    console.log({
+      event: "estimate_openai_output_text",
+      timestamp_utc: new Date().toISOString(),
+      request_id: requestId,
+      output_length: outputText.length,
+      preview
+    });
 
     return { result: parseEstimatePayload(outputText), rawText: outputText };
   } catch (error) {

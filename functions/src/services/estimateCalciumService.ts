@@ -155,6 +155,13 @@ export async function estimateCalcium({
       timeoutMs: config.timeoutMs
     });
 
+    logger("estimate_openai_result", {
+      request_id: requestId,
+      calcium_mg: openaiResult.result.calcium_mg,
+      confidence: openaiResult.result.confidence,
+      confidence_label: openaiResult.result.confidence_label
+    });
+
     const latencyMs = Date.now() - startTime;
     logger("estimate_openai_request_done", {
       request_id: requestId,
